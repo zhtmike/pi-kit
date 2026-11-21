@@ -88,7 +88,7 @@ function splitSegments(cmd: string): string[] {
 
 // --- git ---------------------------------------------------------------------------------
 
-const GIT_ALLOW = new Set(["status", "diff", "log", "show", "ls-files", "rev-parse", "describe", "blame", "grep", "fetch", "add"]);
+const GIT_ALLOW = new Set(["status", "diff", "log", "show", "ls-files", "ls-tree", "rev-parse", "describe", "blame", "grep", "fetch", "add"]);
 const GIT_DESTRUCTIVE = new Set(["rebase", "clean"]);
 
 /** A `+` refspec or an empty-source deletion refspec (`:branch`). */

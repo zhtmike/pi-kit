@@ -30,7 +30,7 @@ const SELF_PROBE = probeWith(
 );
 
 /**
- * Ensure this session holds the checkout at `root` — rows 0–6. `sid` empty or
+ * Ensure this session holds the checkout at `root` — rows 0–7. `sid` empty or
  * our own start token unreadable is the dead-man guard: write nothing, block.
  * Callers gate `.pi`-ignore before passing (creation paths only).
  */

@@ -16,7 +16,7 @@ const shape = (cmd: string) => classifyCommand(cmd).shape;
 
 // --- allow rows ---------------------------------------------------------------------------
 t("git status/diff/log/show/ls-files/rev-parse/describe/blame/grep/fetch are allow", () => {
-	for (const sub of ["status", "diff", "log", "show", "ls-files", "rev-parse", "describe", "blame", "grep", "fetch"]) {
+	for (const sub of ["status", "diff", "log", "show", "ls-files", "ls-tree", "rev-parse", "describe", "blame", "grep", "fetch"]) {
 		assert.equal(tier(`git ${sub}`), "allow", `git ${sub}`);
 	}
 });
