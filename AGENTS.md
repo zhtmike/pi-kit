@@ -14,7 +14,7 @@ contract. When code and docs disagree, that is a bug in one of them; fix the
 disagreement, not just the code.
 
 Surface discipline: the settled tools are the whole surface — `checkout`,
-`git_commit`, `review_bind`, `pr_draft`, `review_text`; no slash commands, no
+`approve`, `git_commit`, `review_bind`, `pr_draft`, `review_text`; no slash commands, no
 new option, state, or action without a payer against docs/api.md. Tool
 descriptions stay lean (purpose, workflow skeleton, semantics the parameter
 names don't carry, warnings code cannot enforce) — schema text rides every
@@ -28,7 +28,7 @@ reference never enters context.
 - `extensions/review-text.ts` — `pr_draft`, `review_text`
 - `src/classify.ts` — the tier table (pure)
 - `src/claim.ts` / `src/claimrun.ts` / `src/stamp.ts` — claim rows, runner, stamp/lock IO
-- `src/approvals.ts` — session-approval matcher (pure)
+- `src/approvals.ts` — session-approval record/replay core (pure; recognition is the agent's judgment via `approve`)
 - `src/envelopes.ts` — review-surface shapes + remote-URL parsing (pure)
 - `src/identity.ts` — agent/model identity, trailers, markers, disclosures (pure)
 - `src/binds.ts` — `.pi/REVIEW_BINDS.json` under the lock discipline

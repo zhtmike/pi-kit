@@ -41,9 +41,10 @@ export function trailerLines(id: Identity): string[] {
 	return out;
 }
 
-/** Reply marker (conversation-gate's spelling); model parenthetical drops when unverifiable. */
+/** Reply marker — conversation-gate's small-print line, <sub>-wrapped so it renders small on the remote; model parenthetical drops when unverifiable. */
 export function replyMarker(id: Identity): string {
-	return id.model !== undefined ? `AI-assisted reply — ${id.agent} (${id.model})` : `AI-assisted reply — ${id.agent}`;
+	const line = id.model !== undefined ? `AI-assisted reply — ${id.agent} (${id.model})` : `AI-assisted reply — ${id.agent}`;
+	return `<sub>${line}</sub>`;
 }
 
 /** Review-summary footer; model drops when unverifiable. */

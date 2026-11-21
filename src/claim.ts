@@ -36,7 +36,7 @@ export interface ClaimProbe {
 
 export const BLIND = (self: ClaimSelf): boolean => self.sid === "" || self.token === "";
 
-/** Rows 0–6. Callers handle the blind probe (write nothing, block) before calling. */
+/** Rows 0–7 (7 = liveness unknown, retained). Callers handle the blind probe (write nothing, block) before calling. */
 export function decideClaim(stamp: StampRecord | null | "malformed", self: ClaimSelf, probe: ClaimProbe): ClaimDecision {
 	if (stamp === null) return { row: 0, action: "create" };
 	if (stamp === "malformed") return { row: 6, action: "block", reason: "claim stamp .pi/OWNER.json is malformed or incomplete — retained, not replaced. Inspect it by hand; delete it only if you know its writer is gone (checkout action 'status' shows the record)." };
@@ -72,7 +72,7 @@ export function decideClaim(stamp: StampRecord | null | "malformed", self: Claim
  * (the extension's processStartId). Empty token on either side → unknown
  * (never dead). Different token kinds (date vs ticks) or a reused pid → dead.
  */
-export function probeWith(startTokenOf: (pid: number) => string, exists: (pid: number) => boolean): ClaimProbe {
+export function probeWith(startTokenOf: (pid: number) => string, exists: (pid: number) => boolean): (rec: { pid: number; token: string }) => Liveness {
 	return (rec) => {
 		if (rec.token === "") return "unknown";
 		const now = startTokenOf(rec.pid);

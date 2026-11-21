@@ -27,30 +27,34 @@ t("comment: a non-positive line refuses", () => {
 });
 
 // --- reply --------------------------------------------------------------------------------
-t("reply addressed opens 'Addressed in <commit>:' and carries the marker", () => {
-	const text = replyText({ verdict: "addressed", answers: "the null check", commit: "abc1234", verification: "npm test green" }, id);
-	assert.match(text, /^Addressed in `abc1234`:$/m);
-	assert.match(text, /- Answers: the null check/);
+t("reply opens with the > quote, answers below the verdict opener, marker small", () => {
+	const text = replyText({ verdict: "addressed", quote: "the null check on parseRecord", answers: "the check moved to the caller", commit: "abc1234", verification: "npm test green" }, id);
+	assert.match(text, /^> the null check on parseRecord$\n\nAddressed in `abc1234`:/m);
+	assert.match(text, /- Answers: the check moved to the caller/);
 	assert.match(text, /- Verification: npm test green/);
-	assert.match(text, /AI-assisted reply — pi \(glm-5\.3\)$/m);
+	assert.match(text, /<sub>AI-assisted reply — pi \(glm-5\.3\)<\/sub>$/m);
 });
 t("reply skipped opens 'Skipped, with reasoning:' and requires a reason", () => {
-	const text = replyText({ verdict: "skipped", answers: "naming nit", reason: "either shape is defensible" }, id);
+	const text = replyText({ verdict: "skipped", quote: "naming nit", reason: "either shape is defensible" }, id);
 	assert.match(text, /^Skipped, with reasoning:$/m);
 	assert.match(text, /- Reason: either shape is defensible/);
-	assert.throws(() => replyText({ verdict: "skipped", answers: "x" }, id), /reason/);
+	assert.throws(() => replyText({ verdict: "skipped", quote: "x" }, id), /reason/);
+	assert.throws(() => replyText({ verdict: "addressed", commit: "abc" } as any, id), /quote/);
 });
 t("reply addressed without a commit refuses", () => {
-	assert.throws(() => replyText({ verdict: "addressed", answers: "x" }, id), /commit/);
+	assert.throws(() => replyText({ verdict: "addressed", quote: "x" }, id), /commit/);
 });
-t("reply: a marked text never gains a second marker", () => {
-	const once = replyText({ verdict: "addressed", answers: "x", commit: "abc" }, id);
-	const twice = replyText({ verdict: "addressed", answers: once, commit: "abc" }, id);
-	assert.equal(twice.split("AI-assisted reply").length - 1, 1);
+t("reply: each reply ends with its own marker — a quoted marker never suppresses it, an identical trailing one does", () => {
+	const once = replyText({ verdict: "addressed", quote: "x", commit: "abc" }, id);
+	const twice = replyText({ verdict: "addressed", quote: once, commit: "abc" }, id);
+	assert.equal(twice.split("AI-assisted reply").length - 1, 2); // the quoted reply's + its own
+	assert.ok(twice.trimEnd().endsWith(replyMarker(id)));
+	const raw = `Addressed in \`abc\`:\n- Answers: y\n\n${replyMarker(id)}`;
+	assert.equal(replyText({ verdict: "addressed", quote: "x", answers: raw, commit: "abc" }, id).split("AI-assisted reply").length - 1, 1); // mid-text marker, own appended
 });
-t("marker drops the model parenthetical when unverifiable", () => {
-	assert.equal(replyMarker(bareId), "AI-assisted reply — pi (glm-5.3)");
-	assert.equal(replyMarker(noModel), "AI-assisted reply — pi");
+t("marker drops the model parenthetical when unverifiable; small-print wrap always", () => {
+	assert.equal(replyMarker(bareId), "<sub>AI-assisted reply — pi (glm-5.3)</sub>");
+	assert.equal(replyMarker(noModel), "<sub>AI-assisted reply — pi</sub>");
 	assert.equal(summaryFooter(noModel), "AI assistance (pi) was used for this review.");
 });
 
@@ -83,6 +87,13 @@ t("template heading match is line-exact, not substring", () => {
 	const template = "## What\n";
 	const out = checkDraft("## Whatever changed\n\nx", "agent; human", template, id);
 	assert.deepEqual(out.templateMissing, ["## What"]); // '## Whatever changed' must not satisfy '## What'
+});
+t("a template with its own AI section: unfilled refuses naming it; filled passes with nothing appended", () => {
+	const template = "## What\n\n## AI assistance\n";
+	assert.throws(() => checkDraft("## What\nx", undefined, template, id), /template pins its own disclosure/);
+	const filled = checkDraft("## What\nx\n\n## AI assistance\nhuman reviewed everything", undefined, template, id);
+	assert.equal(filled.body, "## What\nx\n\n## AI assistance\nhuman reviewed everything"); // no append on top
+	assert.deepEqual(filled.templateMissing, []);
 });
 t("template headings parse and skip the AI-assistance heading", () => {
 	assert.deepEqual(templateHeadings("## A\nprose\n### B\n## AI assistance\n"), ["## A", "### B"]);

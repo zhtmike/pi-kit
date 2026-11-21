@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { BLIND, decideClaim, probeWith, type StampRecord } from "../src/claim.ts";
 import { recordBinds, spendBind, findBind, readBinds } from "../src/binds.ts";
+import { createStamp, readStamp, lockPath, takeLock, readStartToken } from "../src/stamp.ts";
+import { slugify } from "../src/util.ts";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -92,6 +94,43 @@ const withRoot = (fn: (root: string) => void): void => {
 	}
 };
 
+t("stamps: wx create; EEXIST returns false; a live foreign stamp is retained", () => {
+	withRoot((root) => {
+		assert.equal(createStamp(root, { sid: "a", pid: 1, host: "h", token: "t1" }), true);
+		assert.equal(createStamp(root, { sid: "b", pid: 2, host: "h", token: "t2" }), false); // never clobber
+		const stamp = readStamp(root);
+		assert.ok(stamp !== null && stamp !== "malformed" && stamp.sid === "a");
+	});
+});
+t("locks: a dead or malformed holder is taken over; our own leftover is re-taken", () => {
+	withRoot((root) => {
+		const me = { pid: process.pid, host: "h", token: readStartToken(process.pid) };
+		fs.writeFileSync(lockPath(root, "test.lock"), JSON.stringify({ pid: 999999, host: "h", token: "gone" }));
+		const live = takeLock(root, "test.lock", me);
+		assert.equal(live.ok, true); // dead holder replaced
+		if (live.ok) live.release();
+		fs.writeFileSync(lockPath(root, "test.lock"), "not json");
+		const malformed = takeLock(root, "test.lock", me);
+		assert.equal(malformed.ok, true);
+		if (malformed.ok) malformed.release();
+		fs.writeFileSync(lockPath(root, "test.lock"), JSON.stringify({ pid: process.pid, host: "h", token: readStartToken(process.pid) }));
+		const own = takeLock(root, "test.lock", me);
+		assert.equal(own.ok, true); // own leftover re-taken, stale file gone
+		if (own.ok) own.release();
+	});
+});
+t("locks: a live foreign holder blocks", () => {
+	withRoot((root) => {
+		const me = { pid: process.pid, host: "h", token: readStartToken(process.pid) };
+		fs.writeFileSync(lockPath(root, "test.lock"), JSON.stringify({ pid: process.pid, host: "h", token: readStartToken(process.pid) }));
+		const foreign = takeLock(root, "test.lock", { pid: -1, host: "other", token: "x" });
+		assert.equal(foreign.ok, false); // foreign-host holder retained
+	});
+});
+t("slugify: branch names → file slugs", () => {
+	assert.equal(slugify("feat/slices-1_3"), "feat-slices-1-3");
+	assert.equal(slugify("??"), "branch"); // never empty
+});
 t("binds: record → find (foreign sid) → spend exactly once", () => {
 	withRoot((root) => {
 		const me = { pid: process.pid, host: "h", token: "T" };

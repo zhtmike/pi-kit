@@ -1,7 +1,7 @@
 # pi-kit API reference
 
 Personal hard-boundary tools for the [pi](https://pi.dev) coding agent. Three
-extensions, five tools, two floors. Git-installed:
+extensions, six tools, two floors. Git-installed:
 
 ```
 pi install git:github.com/zhtmike/pi-kit
@@ -76,10 +76,10 @@ quit/exit unlinks it best-effort (reload/new/resume/fork keep it).
 
 | shape | tier |
 |---|---|
-| `git status/diff/log/show/ls-files/rev-parse/describe/blame/grep`, `git reflog` (no expire/delete), `git fetch`, `git add`; `gh pr view/diff/list`, `gh issue view/diff/list`, `gh run view/list/download`, `gh repo view/list/download`, `gh label view/list`, `gh release view/list/download`, `gh workflow view/list/download`, `gh search …`; `gh api` GET | **allow** — `git add` still meets the claim floor |
+| `git status/diff/log/show/ls-files/ls-tree/rev-parse/describe/blame/grep`, `git reflog` (no expire/delete), `git fetch`, `git add`; `gh pr view/diff/list`, `gh issue view/diff/list`, `gh run view/list/download`, `gh repo view/list/download`, `gh label view/list`, `gh release view/list/download`, `gh workflow view/list/download`, `gh search …`; `gh api` GET | **allow** — `git add` still meets the claim floor |
 | `git push` (no force form, resolved owner ∈ `ownerLogins`); `gh pr create`; `gh pr edit --title/--body-file`; gh comment/reply/label edits; other `gh api` (implicit-POST reads incl. graphql queries) | **ask** — dialog offers once / for-this-session / refuse; session approvals and `standingAllows` may cover it |
 | `git rebase`, `reset --hard`, `clean`, `commit --amend`, `commit --no-verify`/`-n`, `restore`/`checkout -- <path>`/`checkout .`, `stash drop/clear`, force/delete push forms (`--force`, `-f`, `--force-with-lease`, `--force-if-includes`, `+refspec`, `:branch`, `--delete`), `branch -D` | **destructive** — dialog offers once / refuse only; never covered |
-| bash `git commit` in any form; `git push` to a non-`ownerLogins` (or unparseable — SSH alias, non-GitHub) remote; `gh pr review --approve/--request-changes`; `gh pr merge/close/reopen/ready`; issue close/reopen/delete; PR→draft; `gh api` non-GET that merges/closes/submits a review verdict; graphql `mutation` | **refuse** — no dialog, no coverage; the reason names `git_commit` where it exists |
+| bash `git commit` in any plain form (`-m`, `-F`, `-t`; the `--amend`/`--no-verify`/`-n` forms are destructive-tier); `git push` to a non-`ownerLogins` (or unparseable — SSH alias, non-GitHub) remote; `gh pr review --approve/--request-changes`; `gh pr merge/close/reopen/ready`; issue close/reopen/delete; PR→draft; `gh api` non-GET that merges/closes/submits a review verdict; graphql `mutation` | **refuse** — no dialog, no coverage; the reason names `git_commit` where it exists |
 
 Closing rules: anything that changes PR/issue state or posts a review verdict
 is refuse. A gh post carrying prose is ask **only** with `--body-file` of a
@@ -103,23 +103,24 @@ result names the approval); uncovered ones and every destructive shape block
 
 ### Session approvals
 
-The TUI typing channel — `ctx.mode === "tui"` **and** input source
-`interactive` **and** no child markers (`PI_MINIMAL_DISPATCH_CHILD`,
-`NIGHTWATCH_*`) — records grants that survive compaction (session entries),
-replay in file order, and end at quit (a fork starts empty; a resume keeps
-the resumed session's set). Recognition is spelling-robust, not
-phrase-frozen: a directive gated verb ("push", "please commit", "feel free
-to open a PR") grants; an approval signal (approved / OK'd / confirmed /
-green-light / "go ahead" / "ship it" / LGTM) makes verbs named in the same
-message count. Guards: negated verbs and noun-governed verbs ("the previous
-commit") never count; hedges ("maybe", "should we", "later") do not grant.
-Coverable actions: `commit`, `push` (owner-checked), `pr create`, `pr edit`.
-A named commit or push covers every later matching op until quit — new
-files, public signatures, new dependencies, >50 lines included; the
-fresh-review bind still runs per diff. Parse misses are visible on the
-footer and the next ask quotes them — never a silent grant. Dialog
-"for-this-session" clicks use the same record. Nothing else records: lanes,
-night-watch children, `rpc`/`extension` sources, print/json modes.
+Recognition is the **session agent's judgment, not a hard-coded grammar**.
+When the user's TUI message grants gated actions — a directive ("push it"),
+an approval of named verbs, or a blanket approval of the session/gate ("I
+have approved the gate", "I have human approved the session") — the agent
+calls `approve` with the actions it judged granted and a short quote of the
+user's words. Hedges, negations, and questions are not approvals; the agent
+decides, and the record is the audit trail.
+
+**Tool `approve`** — params: `actions` (from `commit`, `push`, `pr_create`,
+`pr_edit`), `source` (the quoted approving words). Records only in the
+owner's TUI session (mode `tui`, no child markers — lanes and headless runs
+never self-approve; their channel is `standingAllows`). Grants last until
+quit, survive compaction (session entries), replay in file order, and show
+on the footer with their source quote. Dialog "for-this-session" clicks use
+the same record. A named `commit` or `push` covers every later matching op
+until quit — new files, public signatures, new dependencies, >50 lines
+included; the fresh-review bind still runs per diff. `push` stays
+owner-checked; refuse-tier and destructive shapes are never coverable.
 
 ### Tool `review_bind`
 
@@ -165,9 +166,14 @@ Writes/overwrites `pr_<branch-slug>.md` in the project root. Inputs:
 `assistance` (what the agent did, what the human reviewed and stands behind —
 appended as the `## AI assistance` section when the body carries none; a
 body with no section and no param refuses), optional `base`/`head` (defaults:
-remote HEAD branch / current branch). Where `.github/PULL_REQUEST_TEMPLATE*`
-exists it is the envelope — the body must carry the template's headings or
-the call refuses naming them. Returns the path, the full body, a locally
+remote HEAD branch / current branch). Where a PR template exists it is the
+envelope — a single file (`.github/PULL_REQUEST_TEMPLATE.md`,
+`PULL_REQUEST_TEMPLATE.md`, `docs/PULL_REQUEST_TEMPLATE.md`, either case) or
+a template directory (`.github/PULL_REQUEST_TEMPLATE/` — `default.md`, else
+the first `.md`) — the body must carry the template's headings (any level,
+line-exact) or the call refuses naming them. A template that carries its own
+AI/assistance section makes filling that section the disclosure: nothing is
+appended. Returns the path, the full body, a locally
 derived compare URL (`https://github.com/<owner>/<repo>/compare/<base>...<head>`),
 and the landed base..head commits for body-sync. An unparseable remote is a
 loud error naming the manual path. Overwrite is the update path after new
@@ -178,12 +184,15 @@ commits land.
 Returns the text in the tool result; the marker is appended by the tool.
 
 - kind `comment`: `file:line: <one imperative ask>` plus at most one fact.
-- kind `reply`: opens `Addressed in \`<commit>\`:` (commit required) or `Skipped, with reasoning:` (reason required); fields `answers` (what it replies to, quoted or restated), `verification`. Marker: `AI-assisted reply — <agent> (<model>)`.
-- kind `summary`: the caller's text closed with `AI assistance (<agent>, <model>) was used for this review.`
+- kind `reply`: the answered finding (`quote`) opens the reply as a `>` blockquote — GitHub-native quoting that survives collapsed threads — then `Addressed in \`<commit>\`:` (commit required) or `Skipped, with reasoning:` (reason required), with `answers` and `verification` as bullets below. Marker: `<sub>AI-assisted reply — <agent> (<model>)</sub>` — conversation-gate's small-print line, rendered small on the remote. A reply lands in the thread it answers — never as a top-level comment.
+- kind `summary`: the caller's text — block-composed (verdict / findings / coverage) — closed with `AI assistance (<agent>, <model>) was used for this review.`
 
 Verdict vocabulary is fixed: `addressed` / `skipped`. The tool refuses text
 it cannot mark or attribute (unverifiable agent → error; unverifiable model
-→ parenthetical drops); a marked quote never gains a second marker.
+→ parenthetical drops); each reply ends with its own marker — a trailing
+duplicate is never appended, a quoted marker never suppresses it. Comments
+carry no marker: the bare-findings shape is the comment's own (its anchor
+plays the footer's role), and the review's footer discloses.
 
 ## Non-goals
 

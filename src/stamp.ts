@@ -9,7 +9,7 @@
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { probeWith, type StampRecord } from "./claim.ts";
+import { type Liveness, probeWith, type StampRecord } from "./claim.ts";
 
 export const STAMP_NAME = "OWNER.json";
 export const LOCK_NAME = "OWNER.lock";
@@ -37,6 +37,39 @@ function parseRecord(text: string): StampRecord | "malformed" {
 	} catch {
 		return "malformed";
 	}
+}
+
+/** Lock records are stamp-shaped minus the sid: {pid, host, token}. */
+export interface LockRecord {
+	pid: number;
+	host: string;
+	token: string;
+}
+function parseLockRecord(text: string): LockRecord | "malformed" {
+	try {
+		const v = JSON.parse(text);
+		if (
+			v === null || typeof v !== "object" || Array.isArray(v) ||
+			typeof (v as any).pid !== "number" ||
+			typeof (v as any).host !== "string" || typeof (v as any).token !== "string"
+		) {
+			return "malformed";
+		}
+		return { pid: (v as any).pid, host: (v as any).host, token: (v as any).token };
+	} catch {
+		return "malformed";
+	}
+}
+
+export function readLockAt(file: string): LockRecord | null | "malformed" {
+	let raw: string;
+	try {
+		raw = fs.readFileSync(file, "utf8");
+	} catch (e: any) {
+		if (e.code === "ENOENT") return null;
+		throw e;
+	}
+	return parseLockRecord(raw);
 }
 
 export function readStampAt(file: string): ReadStamp {
@@ -85,12 +118,8 @@ export function unlinkIfOurs(root: string, sid: string): void {
 
 // --- locks -------------------------------------------------------------------------------
 
-function startTokenOf(pid: number): string {
-	return readStartToken(pid);
-}
-
 /** The liveness probe used by both locks and stamps. */
-export const lockProbe = probeWith(readStartToken, (pid) => {
+export const lockProbe: (rec: { pid: number; token: string }) => Liveness = probeWith(readStartToken, (pid) => {
 	try {
 		process.kill(pid, 0);
 		return true;
@@ -123,14 +152,15 @@ export function takeLock(root: string, name: string, self: { pid: number; host: 
 			};
 		} catch (e: any) {
 			if (e.code !== "EEXIST") throw e;
-			const holder = readStampAt(file);
+			const holder = readLockAt(file);
 			if (holder === null) continue; // released between EEXIST and read — retry
 			if (holder === "malformed") {
 				fs.unlinkSync(file); // a malformed lock is replaced
 				continue;
 			}
 			if (holder.pid === self.pid && holder.token === self.token && holder.host === self.host) {
-				return { ok: true, release: () => undefined }; // our own leftover from a crashed take
+				fs.unlinkSync(file); // our own leftover from a crashed take — re-take it cleanly
+				continue;
 			}
 			if (holder.host !== self.host) {
 				return { ok: false, reason: `lock ${file} is held by pid ${holder.pid} on host '${holder.host}' — a foreign-host lock is retained; retry after it clears or work elsewhere.` };

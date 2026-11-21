@@ -18,8 +18,10 @@ export interface CommentInput {
 
 export interface ReplyInput {
 	verdict: "addressed" | "skipped";
-	/** The finding, request, or comment replied to, quoted or restated. */
-	answers: string;
+	/** The finding, request, or comment replied to — rendered at the top as a > blockquote. */
+	quote: string;
+	/** The reply's own answer, below the verdict opener. */
+	answers?: string;
 	/** The commit that addressed it — required when verdict is `addressed`. */
 	commit?: string;
 	verification?: string;
@@ -41,14 +43,21 @@ export function replyText(r: ReplyInput, id: Identity): string {
 	} else if (r.reason === undefined || r.reason === "") {
 		throw new Error("a `skipped` reply names its reasoning — pass `reason`");
 	}
-	const opener = r.verdict === "addressed" ? `Addressed in \`${r.commit}\`:` : "Skipped, with reasoning:";
-	const lines = [opener];
-	if (r.answers.trim() !== "") lines.push(`- Answers: ${r.answers.trim()}`);
+	if (r.quote === undefined || r.quote.trim() === "") {
+		throw new Error("a reply opens with what it answers — pass `quote` (the finding, request, or comment, rendered as a > blockquote)");
+	}
+	// The quoted original opens the reply (GitHub-native > that survives collapsed
+	// threads); the verdict and the answers land below it.
+	const lines = r.quote.trim().split("\n").map((l) => `> ${l}`.trimEnd());
+	lines.push("", r.verdict === "addressed" ? `Addressed in \`${r.commit}\`:` : "Skipped, with reasoning:");
+	if (r.answers !== undefined && r.answers.trim() !== "") lines.push(`- Answers: ${r.answers.trim()}`);
 	if (r.verification !== undefined && r.verification.trim() !== "") lines.push(`- Verification: ${r.verification.trim()}`);
 	if (r.verdict === "skipped" && r.reason !== undefined) lines.push(`- Reason: ${r.reason.trim()}`);
 	const marker = replyMarker(id);
-	// a marked quote never gains a second marker
-	if (lines.some((l) => l.includes(marker))) return lines.join("\n");
+	// a text already ENDING in its own marker never gains a second — a marker
+	// inside a quoted line is the quoted reply's own, and this reply keeps its
+	const body = lines.join("\n");
+	if (body.trimEnd().endsWith(marker)) return body;
 	lines.push("", marker);
 	return lines.join("\n");
 }
@@ -79,12 +88,23 @@ export function templateHeadings(template: string): string[] {
 
 export function checkDraft(body: string, assistance: string | undefined, template: string | undefined, id: Identity): DraftCheck {
 	let out = body.replace(/\s+$/, "");
+	// A repo template may carry its own AI/assistance section — when it does,
+	// the body MUST fill it (that section is the disclosure) and nothing is
+	// appended on top; when it does not, the tool appends its own section.
+	const templateOwnsDisclosure = template !== undefined && ASSISTANCE_HEADING_RE.test(template);
 	if (template !== undefined && template.trim() !== "") {
 		const bodyLines = new Set(out.split("\n").map((l) => l.trim()));
 		const missing = templateHeadings(template).filter((h) => !bodyLines.has(h));
 		if (missing.length > 0) {
 			return { body: out, templateMissing: missing };
 		}
+	}
+	if (templateOwnsDisclosure) {
+		if (!ASSISTANCE_HEADING_RE.test(out)) {
+			const heading = (template ?? "").split("\n").find((l) => ASSISTANCE_HEADING_RE.test(l))?.trim() ?? "the template's AI-assistance section";
+			throw new Error(`the PR template pins its own disclosure (${heading}) — fill that section in the body; nothing is appended on top of a template that carries one`);
+		}
+		return { body: out, templateMissing: [] };
 	}
 	if (!ASSISTANCE_HEADING_RE.test(out)) {
 		if (assistance === undefined || assistance.trim() === "") {

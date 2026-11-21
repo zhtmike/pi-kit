@@ -16,7 +16,7 @@ const shape = (cmd: string) => classifyCommand(cmd).shape;
 
 // --- allow rows ---------------------------------------------------------------------------
 t("git status/diff/log/show/ls-files/rev-parse/describe/blame/grep/fetch are allow", () => {
-	for (const sub of ["status", "diff", "log", "show", "ls-files", "rev-parse", "describe", "blame", "grep", "fetch"]) {
+	for (const sub of ["status", "diff", "log", "show", "ls-files", "ls-tree", "rev-parse", "describe", "blame", "grep", "fetch"]) {
 		assert.equal(tier(`git ${sub}`), "allow", `git ${sub}`);
 	}
 });
@@ -69,6 +69,20 @@ t("unknown git/gh shapes ask", () => {
 	assert.equal(tier("git filter-repo --dry-run"), "ask");
 	assert.equal(tier("gh browse"), "ask");
 });
+t("relocating GIT_* env assignments make the tier at least ask; GIT_DIR relocates the target", () => {
+	assert.equal(tier("GIT_DIR=/x/.git git status"), "ask");
+	assert.equal(classifyCommand("GIT_DIR=/x/.git git status").targetDir, "/x/.git");
+	assert.equal(tier("GIT_WORK_TREE=/x git status"), "ask");
+	assert.equal(tier("env GIT_DIR=/x/.git git status"), "ask");
+});
+t("gh -R/--repo consume their value (no misshapen subcommand)", () => {
+	assert.equal(tier("gh -R zhtmike/pi-kit pr view 12"), "allow");
+});
+t("push args ride the git-push segment, not a naive token scan", () => {
+	const c = classifyCommand("git log --grep push && git push origin main");
+	assert.equal(c.tier, "ask");
+	assert.deepEqual(c.pushArgs, ["origin", "main"]);
+});
 t("compound: echo a && git push asks; cd relocates the target", () => {
 	assert.equal(tier("echo a && git push"), "ask");
 	const c = classifyCommand("cd /repo && git status");
@@ -78,10 +92,13 @@ t("compound: echo a && git push asks; cd relocates the target", () => {
 t("wrappers: sudo env git push classifies as the inner push", () => {
 	assert.equal(tier("sudo env git push origin main"), "ask");
 });
-t("git add is allow with its own shape (the claim floor's gate)", () => {
+t("git add is allow with its own shape (the claim floor's gate); compounds surface it", () => {
 	const c = classifyCommand("git add -A");
 	assert.equal(c.tier, "allow");
 	assert.equal(c.shape, "git add");
+	const compound = classifyCommand("git status && git add -A");
+	assert.equal(compound.tier, "allow");
+	assert.equal(compound.shape, "git add"); // an allow-tier tie must not hide the mutating stage
 });
 
 // --- destructive rows ---------------------------------------------------------------------

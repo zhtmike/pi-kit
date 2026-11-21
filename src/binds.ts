@@ -32,10 +32,6 @@ export function bindsPath(root: string): string {
 	return path.join(root, ".pi", BINDS_NAME);
 }
 
-export function sha256Text(text: string): string {
-	return createHash("sha256").update(text).digest("hex");
-}
-
 export function sha256File(file: string): string {
 	return createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
@@ -45,15 +41,18 @@ function readBindsAt(file: string): BindsFile {
 	try {
 		raw = fs.readFileSync(file, "utf8");
 	} catch {
-		return { version: 1, rows: [] };
+		return { version: 1, rows: [] }; // absent file = no binds yet
 	}
+	let v: unknown;
 	try {
-		const v = JSON.parse(raw);
-		if (v === null || typeof v !== "object" || !Array.isArray((v as any).rows)) return { version: 1, rows: [] };
-		return { version: 1, rows: (v as any).rows.filter((r: any) => r && (r.kind === "tree" || r.kind === "post") && typeof r.hash === "string" && typeof r.sid === "string") };
-	} catch {
-		return { version: 1, rows: [] };
+		v = JSON.parse(raw);
+	} catch (e) {
+		throw new Error(`${file} is not parseable JSON — inspect it by hand; pi-kit never rewrites a corrupt binds file (${(e as Error).message})`);
 	}
+	if (v === null || typeof v !== "object" || !Array.isArray((v as any).rows)) {
+		throw new Error(`${file} is malformed (expected {version, rows[]}) — inspect it by hand; pi-kit never rewrites a corrupt binds file`);
+	}
+	return { version: 1, rows: (v as any).rows.filter((r: any) => r && (r.kind === "tree" || r.kind === "post") && typeof r.hash === "string" && typeof r.sid === "string") };
 }
 
 export function readBinds(root: string): BindsFile {

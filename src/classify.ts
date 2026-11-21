@@ -22,6 +22,8 @@ export interface Classification {
 	bodyFile?: string;
 	/** The gh post carries no body at all (title/metadata only) — ask without a bind. */
 	noBody?: boolean;
+	/** Args after `git push` of the segment that carried it (remote/refspec resolution). */
+	pushArgs?: string[];
 }
 
 // --- shell-word tokenization (quotes only; no expansion — token-grade by design) ---------
@@ -50,7 +52,7 @@ export function shellWords(s: string): string[] {
 }
 
 /** Split a command line on top-level `&&` `||` `;` `|` and newlines, quote-aware. */
-export function splitSegments(cmd: string): string[] {
+function splitSegments(cmd: string): string[] {
 	const segs: string[] = [];
 	let cur = "";
 	let quote: '"' | "'" | null = null;
@@ -86,7 +88,7 @@ export function splitSegments(cmd: string): string[] {
 
 // --- git ---------------------------------------------------------------------------------
 
-const GIT_ALLOW = new Set(["status", "diff", "log", "show", "ls-files", "rev-parse", "describe", "blame", "grep", "fetch", "add"]);
+const GIT_ALLOW = new Set(["status", "diff", "log", "show", "ls-files", "ls-tree", "rev-parse", "describe", "blame", "grep", "fetch", "add"]);
 const GIT_DESTRUCTIVE = new Set(["rebase", "clean"]);
 
 /** A `+` refspec or an empty-source deletion refspec (`:branch`). */
@@ -94,7 +96,7 @@ function isForceRefspec(words: string[]): boolean {
 	return words.some((w) => w === "+" || w.startsWith("+") || /^:[^^]/.test(w) || /:[^/]+\.\.\./.test(w));
 }
 
-export function classifyGit(words: string[]): Classification {
+function classifyGit(words: string[]): Classification {
 	const rest = [...words];
 	let targetDir: string | undefined;
 	let gitDir: string | undefined;
@@ -147,12 +149,13 @@ export function classifyGit(words: string[]): Classification {
 		return refuse(`git ${sub}`, "git commit is refused in bash — use the git_commit tool (hooks on, identity trailers, review bind). --amend/--no-verify are destructive-tier and need the dialog.", target);
 	}
 	if (sub === "push") {
+		const c0 = { tier: "ask", shape: "git push", targetDir: target, pushArgs: args } as Classification;
 		const flags = args.filter((a) => a.startsWith("-"));
 		const force = flags.some((f) => f === "-f" || f === "--force" || f === "--force-with-lease" || f === "--force-if-includes" || f.startsWith("--force")) || args.includes("--delete") || args.includes("-d") || isForceRefspec(args);
 		if (force) {
 			return destructive("git push", target, "force/delete push forms are destructive-tier — approve-once dialog only, never covered by any approval.");
 		}
-		return { tier: "ask", shape: "git push", targetDir: target };
+		return c0;
 	}
 	if (sub === "reset") {
 		if (args.includes("--hard")) return destructive("git reset", target);
@@ -214,9 +217,13 @@ function ghPostRefusal(what: string): string {
 	return `${what} with inline --body (or stdin/heredoc/pipe) is refused — compose the text with review_text, write it to a file, bind it (review_bind kind post), then re-post with --body-file <file>.`;
 }
 
-export function classifyGh(words: string[]): Classification {
+function classifyGh(words: string[]): Classification {
 	const rest = [...words];
-	while (rest.length > 0 && rest[0].startsWith("-") && rest[0] !== "--") rest.shift(); // -R/--repo etc: strip global flags
+	while (rest.length > 0 && rest[0].startsWith("-") && rest[0] !== "--") {
+		const w = rest.shift() as string;
+		// value-taking global flags: consume their argument so it is not mistaken for the subcommand
+		if ((w === "-R" || w === "--repo") && rest.length > 0 && !rest[0].startsWith("-")) rest.shift();
+	}
 	if (rest[0] === "--") rest.shift();
 	const sub = rest[0];
 	if (sub === undefined) return ask("gh", "unknown gh form");
@@ -332,7 +339,7 @@ export function classifyGh(words: string[]): Classification {
 
 const WRAPPERS = new Set(["sudo", "env", "time", "nohup", "nice", "xargs"]);
 
-export function selfMatchReason(pattern: string): string {
+function selfMatchReason(pattern: string): string {
 	return (
 		`pkill/pgrep -f with pattern '${pattern}' matches this shell's own command line — it would kill or list the tool shell itself. ` +
 		"Kill by PID instead: get PIDs from nvidia-smi --query-compute-apps=pid or pgrep <exact-process-name> output, " +
@@ -353,16 +360,33 @@ function classifyPkill(words: string[], rawSegment: string): Classification {
 
 // --- segment -----------------------------------------------------------------------------
 
+const RELOCATING_ENV = /^GIT_(DIR|WORK_TREE|INDEX_FILE)=/i;
+
 export function classifySegment(segment: string): Classification {
 	let words = shellWords(segment);
-	// leading VAR=value assignments
-	while (words.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) words = words.slice(1);
+	// Relocating GIT_* assignments get the same at-least-ask tier as
+	// --git-dir/--work-tree, wherever they sit (bare, or after `env`).
+	let envTarget: string | undefined;
+	let envFlag = false;
+	const stripAssignments = (): void => {
+		while (words.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) {
+			if (RELOCATING_ENV.test(words[0])) {
+				envFlag = true;
+				const v = words[0].slice(words[0].indexOf("=") + 1);
+				if (/^GIT_DIR=/i.test(words[0])) envTarget = v;
+			}
+			words = words.slice(1);
+		}
+	};
+	stripAssignments();
 	// wrappers: strip until the real command; bash/sh -c "<script>" classifies the script itself
 	while (words.length > 0 && WRAPPERS.has(words[0])) {
 		const w = words[0];
 		words = words.slice(1);
 		if (w === "env") {
-			while (words.length > 0 && (/^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0]) || words[0].startsWith("-"))) words = words.slice(1);
+			stripAssignments();
+			while (words.length > 0 && words[0].startsWith("-")) words = words.slice(1);
+			stripAssignments();
 		} else if (w === "xargs") {
 			while (words.length > 0 && words[0].startsWith("-")) words = words.slice(1);
 		} else {
@@ -373,6 +397,11 @@ export function classifySegment(segment: string): Classification {
 	if (words[0] === "bash" || words[0] === "sh" || words[0] === "zsh") {
 		if (words[1] === "-c") return classifyCommand(words.slice(2).join(" "));
 		return { tier: "allow", shape: "other" };
+	}
+	stripAssignments();
+	if (words[0] === "git" && envFlag) {
+		const c = classifyGit(words.slice(1));
+		return { ...c, tier: c.tier === "allow" ? "ask" : c.tier, targetDir: envTarget ?? c.targetDir, reason: c.reason ?? "git with a relocating GIT_* environment assignment" };
 	}
 	if (words[0] === "git") return classifyGit(words.slice(1));
 	if (words[0] === "gh") return classifyGh(words.slice(1));
@@ -396,7 +425,12 @@ export function classifyCommand(cmd: string): Classification {
 	if (parts.length === 0) return { tier: "allow", shape: "other", targetDir: target };
 	let worst = parts[0];
 	for (const p of parts) if (TIER_RANK[p.tier] > TIER_RANK[worst.tier]) worst = p;
-	return { ...worst, targetDir: worst.targetDir ?? target };
+	// `git add` is the one allow-tier shape that mutates the index and meets the
+	// claim floor — a compound where any segment adds must surface that shape
+	// even when another allow segment wins the tie.
+	if (worst.tier === "allow" && parts.some((p) => p.shape === "git add")) worst = { ...worst, shape: "git add" };
+	const pushPart = parts.find((p) => p.shape === "git push");
+	return { ...worst, targetDir: worst.targetDir ?? target, ...(pushPart?.pushArgs ? { pushArgs: pushPart.pushArgs } : {}) };
 }
 
 function allow(shape: string, targetDir?: string): Classification {

@@ -44,10 +44,9 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("tool_call", async (event, ctx) => {
 		if (isToolCallEventType("edit", event) || isToolCallEventType("write", event)) {
+			// Resolve through symlinks — the whole target, final component included:
+			// an edit under a symlinked install lands in the source repo's tree.
 			const raw = path.resolve(event.input.path);
-			// Resolve through symlinks: an edit under a symlinked install lands in
-			// the source repo's tree, and that tree's claim rules apply — the whole
-			// target, final component included, not just its directory.
 			let target = raw;
 			let dir = path.dirname(raw);
 			try {
@@ -56,6 +55,7 @@ export default function (pi: ExtensionAPI) {
 			} catch {
 				try {
 					dir = fs.realpathSync(dir);
+					target = path.join(dir, path.basename(raw)); // new file: rejoin under the resolved dir
 				} catch {
 					return; // unreadable path — not ours to gate
 				}
@@ -81,7 +81,7 @@ export default function (pi: ExtensionAPI) {
 
 		if (isToolCallEventType("bash", event)) {
 			const c = classifyCommand(event.input.command);
-			// Ask-tier and destructive shapes, plus the allow-and-mutating `git add`,
+			// Ask-tier/destructive shapes and `git add` (allow-tier but index-mutating)
 			// create-or-block the claim; read-only allows, refuse shapes, and the
 			// self-match guard pass to the git-api floor.
 			if (c.tier === "ask" || c.tier === "destructive" || c.shape === "git add") {
@@ -128,7 +128,7 @@ export default function (pi: ExtensionAPI) {
 				if (!(await piDirIgnored(exec, treeRoot))) {
 					throw new Error(`.pi/ is not gitignored in ${treeRoot} — worktrees live under .pi/worktrees; add a '.pi/' line to .gitignore. pi-kit never edits ignore files.`);
 				}
-				// An unborn HEAD has no commit to detach at — name the precondition, not the git fatal.
+				// Unborn HEAD: name the precondition, not the git fatal.
 				const head = await exec("git", ["rev-parse", "--verify", "HEAD"], { cwd: treeRoot });
 				if (head.code !== 0) {
 					throw new Error(`the branch has no commits yet — a detached worktree needs HEAD to exist. Land the first commit (git_commit), then re-call worktree.`);
