@@ -11,12 +11,16 @@
 import * as fs from "node:fs";
 import { homedir } from "node:os";
 import * as path from "node:path";
+import { ALL_ACTIONS, type ApprovalAction } from "./approvals.ts";
 
 export const CONFIG_NAME = "pi-kit.json";
 
-/** Shapes a standing allow may pin — ask-tier only; anything else is rejected at load. */
-export const ASK_SHAPES = ["git_commit", "git push", "gh pr create", "gh pr edit", "gh comment", "git tag", "gh release"] as const;
-export type AskShape = (typeof ASK_SHAPES)[number];
+/**
+ * Shapes a standing allow may pin — every gate action except `destructive`
+ * (session-grantable only). One vocabulary with approvals.ts.
+ */
+export type AskShape = Exclude<ApprovalAction, "destructive">;
+export const ASK_SHAPES: readonly AskShape[] = ALL_ACTIONS.filter((a) => a !== "destructive") as readonly AskShape[];
 
 export interface StandingAllow {
 	/** Repository identity "owner/name" (case-insensitive), or "*" for every repo. */

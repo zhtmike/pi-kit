@@ -59,3 +59,13 @@ export function assistanceSection(id: Identity, assistance: string): string {
 }
 
 export const ASSISTANCE_HEADING_RE = /(^|\n)#{1,3}\s*AI[- ]assistance\b/i;
+
+/** A commit's full message: subject, blank-separated body, then the trailer block as its own paragraph (identity trailers first, caller trailers after — never dropped). */
+export function commitMessage(params: { subject: string; body?: string; trailers?: string[] }, id: Identity): string {
+	const parts = [params.subject.trim()];
+	const body = params.body?.trim();
+	const trailers = [...trailerLines(id), ...(params.trailers ?? []).map((t) => t.trim()).filter((t) => t !== "")];
+	if (body !== undefined && body !== "") parts.push("", body);
+	if (trailers.length > 0) parts.push("", trailers.join("\n"));
+	return parts.join("\n");
+}

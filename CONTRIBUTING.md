@@ -9,7 +9,8 @@ npm test          # plain-node suites on the pure cores (no framework, no instal
 npx tsc --noEmit  # after: npm install --no-save typescript@7.0.2 @types/node@24 @earendil-works/pi-coding-agent
 ```
 
-`src/**` imports no host package — that is what keeps the tests zero-install
+The pure modules under `src/**` import no host package — only `src/index.ts`,
+the glue entry, does — which is what keeps the tests zero-install
 and the typecheck the only place host drift shows. Node ≥ 22.19.0 (unflagged
 type-stripping floor).
 
@@ -31,6 +32,6 @@ in three places.
 
 - API-first: a guard's error names the tool that performs the operation correctly; a refusal with no tool names the tier row and the escape.
 - Fail loudly on misuse; fail closed at gate and init.
-- The manifest's extension order is the short-circuit order — `checkout-claim` stays first.
-- Descriptions are lean API docs; the full reference lives in `docs/api.md`, never in context.
+- In `src/index.ts`, handler registration order is the short-circuit order — the claim floor registers first.
+- Descriptions are lean API docs; the full reference lives in `docs/api.md`, never in context; workflow mechanics ride runtime refusals and the `[next: …]` hints.
 - One footer status key (`pi-kit`), merged from parts; no widget, no custom header/footer.

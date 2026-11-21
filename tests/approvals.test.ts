@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ALL_ACTIONS, foldEntry, isApprovalAction } from "../src/approvals.ts";
+import { ALL_ACTIONS, actionOfShape, foldEntry, isApprovalAction } from "../src/approvals.ts";
 
 let failures = 0;
 const t = (name: string, fn: () => void) => {
@@ -12,10 +12,21 @@ const t = (name: string, fn: () => void) => {
 	}
 };
 
-t("the coverable vocabulary is the eight actions (one per ask shape plus the coarse destructive grant)", () => {
-	assert.deepEqual([...ALL_ACTIONS], ["commit", "push", "pr_create", "pr_edit", "comment", "tag", "release", "destructive"]);
+t("the coverable vocabulary is seven single-word actions (every gate action plus the coarse destructive grant)", () => {
+	assert.deepEqual([...ALL_ACTIONS], ["commit", "push", "pr", "comment", "tag", "release", "destructive"]);
 	assert.equal(isApprovalAction("commit"), true);
 	assert.equal(isApprovalAction("merge"), false);
+});
+
+t("shape→action: one ask-tier action per gated command shape; commit and destructive have no shape", () => {
+	assert.equal(actionOfShape("git push"), "push");
+	assert.equal(actionOfShape("gh pr create"), "pr");
+	assert.equal(actionOfShape("gh pr edit"), "pr"); // one trust domain: the PR compose surface
+	assert.equal(actionOfShape("gh comment"), "comment");
+	assert.equal(actionOfShape("git tag"), "tag");
+	assert.equal(actionOfShape("gh release"), "release");
+	assert.equal(actionOfShape("git reset"), undefined);
+	assert.equal(actionOfShape("git commit"), undefined); // bash git commit is refuse-tier; the commit tool gates directly
 });
 
 t("fold: grants accumulate in file order; a clear terminates what precedes it", () => {
@@ -25,8 +36,8 @@ t("fold: grants accumulate in file order; a clear terminates what precedes it", 
 	assert.deepEqual([...s].sort(), ["commit", "push"]);
 	s = foldEntry(s, { cleared: true });
 	assert.deepEqual([...s], []);
-	s = foldEntry(s, { granted: ["pr_create"] });
-	assert.deepEqual([...s], ["pr_create"]);
+	s = foldEntry(s, { granted: ["pr"] });
+	assert.deepEqual([...s], ["pr"]);
 });
 
 process.exit(failures === 0 ? 0 : 1);

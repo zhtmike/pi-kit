@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.0 — 2026-11-21
+
+The pi-minimal-dispatch alignment release: one vocabulary, one entry, one
+presentation module, lean schemas.
+
+- **Tool renames** — `git_commit`→`commit`, `review_bind`→`bind`,
+  `pr_draft`→`draft`, `review_text`→`review` (`checkout`, `approve`
+  unchanged): six single-word names on one surface. No aliases — the owner's
+  machines are the whole install base; the consumers (harness-setup guide,
+  skills repo, local config, installed copy) follow in the same pass.
+- **One gate-action vocabulary** — `commit, push, pr, comment, tag, release,
+  destructive` now keys approve's params, the session-approval record, the
+  footer display, AND `standingAllows` shapes (config files renaming:
+  `git_commit`→`commit`, `git push`→`push`, `gh pr create`/`gh pr edit`→`pr`,
+  `gh comment`→`comment`, `git tag`→`tag`, `gh release`→`release`).
+  Semantic widening, named: `pr` merges `pr_create`+`pr_edit` — one trust
+  domain, the PR compose surface, mirroring how `comment` already spans the
+  issue/PR prose surfaces; a `pr` grant now covers edit where a create-only
+  approval didn't. The shape→action map is one tested function
+  (`actionOfShape`) instead of two hand-maintained tables.
+- **Layout decoupling** — the three `extensions/` files collapse into one
+  glue entry `src/index.ts` (the manifest lists it alone; the claim floor
+  registers first, preserving the short-circuit). Untested pure logic moved
+  out of extension files: `commitMessage`→`identity.ts` (also fixed: the
+  trailer block now blank-separates from the body, so git parses
+  `Co-authored-by` as trailers), PR-template discovery→`envelopes.ts`,
+  draft's git lookups (head/base/remote/log-range)→`githelp.ts`.
+- **New `src/format.ts`** — every composite human-facing text in one pure
+  module: tool result bodies, dialog bodies, floor block reasons, footer
+  labels, and `[next: …]` hints chaining the workflow (bind names its
+  spender, commit names push/draft, draft names the post, worktree names
+  working under the returned path). Schema descriptions shrank to the lean
+  contract — reviewer-lane policy, bind flows, and dialog orders moved out
+  of descriptions (which bill on every request) into runtime refusals and
+  hints; docs/api.md stays the full reference and pins the chaining
+  convention, not the hint wording.
+
+90 unit tests across nine suites (new: format, identity); npm test and tsc
+clean.
+
 ## 0.2.4 — 2026-11-21
 
 The footer segment drops its `pi-kit:` prefix — `[checkout: … · approved:

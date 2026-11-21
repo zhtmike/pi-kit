@@ -1,11 +1,32 @@
 # pi-kit API reference
 
-Personal hard-boundary tools for the [pi](https://pi.dev) coding agent. Three
-extensions, six tools, two floors. Git-installed:
+Personal hard-boundary tools for the [pi](https://pi.dev) coding agent. One
+extension entry (`src/index.ts`), six single-word tools, two floors.
+Git-installed:
 
 ```
 pi install git:github.com/zhtmike/pi-kit
 ```
+
+Descriptions are minimal by contract — purpose, workflow skeleton,
+non-inferable semantics, unenforceable warnings; the mechanics below are
+enforced by runtime errors and chained `[next: …]` result hints, not schema
+prose.
+
+## The gate-action vocabulary
+
+One table keys every gated surface — `approve`'s params, the session-approval
+record, the footer display, and `standingAllows` shapes:
+
+| action | covers | classifier shape | standing-allowable |
+|---|---|---|---|
+| `commit` | the `commit` tool's own gate | — (bash `git commit` is refuse-tier) | yes |
+| `push` | `git push` (owner-checked under any allow) | `git push` | yes |
+| `pr` | PR compose surfaces, create and edit | `gh pr create` · `gh pr edit` | yes |
+| `comment` | prose on issues/PRs — `pr`/`issue comment`, `pr review --comment`, `issue create/edit` | `gh comment` | yes |
+| `tag` | `git tag` write forms | `git tag` | yes |
+| `release` | `gh release create/upload` (the git-tag twin) | `gh release` | yes |
+| `destructive` | every destructive-tier shape (the coarse grant) | — (per-shape never) | no — session-grantable only |
 
 ## Configuration
 
@@ -20,19 +41,19 @@ the process aborts (TUI shows the block and shuts down; print/JSON exit 1).
 {
 	"agentName": "pi",                    // identity in trailers, markers, disclosures
 	"ownerLogins": ["zhtmike"],           // logins whose remotes `git push` may resolve to (empty = every push refused)
-	"standingAllows": [                   // per-repo pre-approvals, ask-tier shapes only
-		{ "repo": "zhtmike/skills", "shapes": ["git_commit", "git push"] },
-		{ "repo": "*", "shapes": ["gh comment"] }
+	"standingAllows": [                   // per-repo pre-approvals, ask-tier actions only
+		{ "repo": "zhtmike/skills", "shapes": ["commit", "push"] },
+		{ "repo": "*", "shapes": ["comment"] }
 	]
 }
 ```
 
-Standing shapes: `git_commit`, `git push`, `gh pr create`, `gh pr edit`,
-`gh comment`, `git tag`, `gh release`. Destructive and refuse shapes are
+Standing shapes: the ask-tier rows of the table above — `commit`, `push`,
+`pr`, `comment`, `tag`, `release`. Destructive and refuse shapes are
 rejected at load.
 The `git push` owner check (`ownerLogins`) still applies under any allow.
 
-## The checkout claim (extension 1)
+## The checkout claim
 
 One live session per git work tree. The stamp is `.pi/OWNER.json` =
 `{sid, pid, host, token}` at the work-tree root; `token` is the process start
@@ -67,11 +88,11 @@ quit/exit unlinks it best-effort (reload/new/resume/fork keep it).
 
 ### What the floor sees
 
-- `edit`/`write` on **tracked** paths outside `.pi/**` (target resolved through symlinks — an edit under a symlinked install is gated against the source repo's tree), plus `.pi/OWNER.json` (names `checkout`) and `.pi/REVIEW_BINDS.json` (names `review_bind`). Every other `.pi/**` path passes; untracked writes, non-git trees, `user_bash`, and redirections are not seen (the named tunnel — a shell redirect onto `OWNER.json` rides it).
-- bash shapes that are ask-tier or destructive: create-or-block the claim **before** any ask dialog (the manifest order pins this). Allow-tier git shapes — `git add` included — do not stop at the claim floor; a local write into a foreign-held tree is standing-assumption residue (the tracked-edit floor and the tools carry the invariant for the paths that matter).
+- `edit`/`write` on **tracked** paths outside `.pi/**` (target resolved through symlinks — an edit under a symlinked install is gated against the source repo's tree), plus `.pi/OWNER.json` (names `checkout`) and `.pi/REVIEW_BINDS.json` (names `bind`). Every other `.pi/**` path passes; untracked writes, non-git trees, `user_bash`, and redirections are not seen (the named tunnel — a shell redirect onto `OWNER.json` rides it).
+- bash shapes that are ask-tier or destructive: create-or-block the claim **before** any ask dialog (the claim floor registers first). Allow-tier git shapes — `git add` included — do not stop at the claim floor; a local write into a foreign-held tree is standing-assumption residue (the tracked-edit floor and the tools carry the invariant for the paths that matter).
 - A dispatched lane with `edit` granted is gated the same way.
 
-## Git/gh operations (extension 2)
+## Git/gh operations
 
 ### The tier table
 
@@ -80,11 +101,11 @@ quit/exit unlinks it best-effort (reload/new/resume/fork keep it).
 | every other agent-typed git command — reads, routine local writes (branch/switch/checkout/stash/merge/pull/`restore --staged`/soft-mixed reset/config/remote/rm/add/worktree/submodule/…), unlisted subcommands, and relocated (`-C`/`--git-dir`/`GIT_DIR`) or `-c`-configured forms; and every other gh command — all reads/downloads/searches, `pr checkout`, unlisted verbs, and `gh api` GET, implicit POST, or explicit `-X` with no state path and no prose fields | **allow** — no dialog, no claim-floor stop |
 | `git push` (no force form, resolved owner ∈ `ownerLogins`); `git tag` write forms (create/`-f`/`-d`; list forms flow); gh post surfaces — `gh pr create`, `gh pr edit`, `gh pr/issue comment`, `gh pr review --comment`, `gh issue create/edit` (inline prose is refuse below); `gh release create/upload` (the git-tag twin) | **ask** — dialog offers once / for-this-session / refuse; session approvals and `standingAllows` may cover it |
 | `git reset --hard`, `clean`, `checkout -- <path>`/`checkout .`/`./`/`:/`/force/`-B` (bare `checkout <file>` without `--` is documented residue), `restore` (worktree forms; `--staged`-only flows), `stash drop/clear`, `branch -D`, `rebase`, `commit --amend`, `commit --no-verify`/`-n`, force/delete push forms (`--force`, `-f`, `--force-with-lease`, `--force-if-includes`, `+refspec`, `:branch`, `--delete`), `git reflog expire/delete` | **destructive** — dialog offers once / until-session-ends / refuse; a session `destructive` grant covers every destructive shape (never standing-allowable) |
-| bash `git commit` in any plain form (`-m`, `-F`, `-t`; the `--amend`/`--no-verify`/`-n` forms are destructive-tier); `git push` to a non-`ownerLogins` (or unparseable — SSH alias, non-GitHub) remote; gh state verbs — `pr merge/close/reopen/ready`, `issue close/reopen/delete`, PR→draft, `release delete/archive`, and the state verbs on any gh noun; `gh pr review --approve/--request-changes`; `gh api` (GET or POST) that merges/closes/submits a review verdict, graphql `mutation`, or prose via `-f body=`; inline gh prose (`--body`, heredoc, `--body-file -`) | **refuse** — no dialog, no coverage; the reason names `git_commit` where it exists |
+| bash `git commit` in any plain form (`-m`, `-F`, `-t`; the `--amend`/`--no-verify`/`-n` forms are destructive-tier); `git push` to a non-`ownerLogins` (or unparseable — SSH alias, non-GitHub) remote; gh state verbs — `pr merge/close/reopen/ready`, `issue close/reopen/delete`, PR→draft, `release delete/archive`, and the state verbs on any gh noun; `gh pr review --approve/--request-changes`; `gh api` (GET or POST) that merges/closes/submits a review verdict, graphql `mutation`, or prose via `-f body=`; inline gh prose (`--body`, heredoc, `--body-file -`) | **refuse** — no dialog, no coverage; the reason names `commit` where it exists |
 
 Closing rules: anything that changes PR/issue state or posts a review verdict
 is refuse. A gh post carrying prose is ask **only** with `--body-file` of a
-[bound](#tool-review_bind) file; inline `--body`, heredocs, and pipes
+[bound](#tool-bind) file; inline `--body`, heredocs, and pipes
 (`--body-file -`) are refuse naming `--body-file`; `--title` is metadata (no
 bind). Any `-f`/`-F` makes `gh api` a POST regardless of `-X`. Compound
 commands evaluate per segment, most-restrictive-wins; a heredoc body is
@@ -118,12 +139,13 @@ Recognition is the **session agent's judgment, not a hard-coded grammar**.
 When the user's TUI message grants gated actions — a directive ("push it"),
 an approval of named verbs, or a blanket approval of the session/gate ("I
 have approved the gate", "I have human approved the session") — the agent
-calls `approve` with the actions it judged granted and a short quote of the
-user's words. Hedges, negations, and questions are not approvals; the agent
+calls `approve` with the actions it judged granted and a short quote of
+the user's words. Hedges, negations, and questions are not approvals; the agent
 decides, and the record is the audit trail.
 
-**Tool `approve`** — params: `actions` (from `commit`, `push`, `pr_create`,
-`pr_edit`, `comment`, `tag`, `release`, `destructive`), `source` (the quoted approving words). Records only in the
+**Tool `approve`** — params: `actions` (the vocabulary table's actions:
+`commit`, `push`, `pr`, `comment`, `tag`, `release`, `destructive`),
+`source` (the quoted approving words). Records only in the
 owner's TUI session (mode `tui`, no child markers — lanes and headless runs
 never self-approve; their channel is `standingAllows`). Grants last until
 quit, survive compaction (session entries), replay in file order, and show
@@ -135,65 +157,67 @@ until quit — new files, public signatures, new dependencies, >50 lines
 included. `push` stays
 owner-checked; refuse-tier shapes are never coverable, destructive shapes never standing-allowable (session-grantable only).
 
-### Tool `review_bind`
+### Tool `bind`
 
-Records that a fresh review ran — the record `git_commit` (kind `tree`) and
-gh posts (kind `post`) spend. Params: `kind` (`tree`/`post`), `path` (post
-only). The row carries the **caller's** session id; the committer's own sid
-never counts. Refuses at thinking `off`/`minimal`/`low` — a low-thinking binder
-reviews nothing. The payer: a reviewer lane dispatched by `commit-gate` with
-the review task in its brief and `review_bind` in its `tools` (the dispatch
-default `read,grep,find,ls` does not include it — the unbound refusal says
-so). Rows are hash-keyed; stale unspent rows accumulate harmlessly.
+Records that a fresh review ran — the record `commit` (kind `tree`) and gh
+posts (kind `post`) spend. Params: `kind` (`tree`/`post`), `path` (post
+only). The row carries the **caller's** session id; the spender's own sid
+never counts. Refuses at thinking `off`/`minimal`/`low` — a low-thinking
+binder reviews nothing. The payer: a reviewer lane dispatched by
+commit-gate with the review task in its brief and `bind` in its `tools`
+(the dispatch default `read,grep,find,ls` does not include it — the
+unbound refusal says so). Rows are hash-keyed; stale unspent rows
+accumulate harmlessly.
 
-- kind `tree`: `git write-tree` of the index, re-verified by `git_commit` immediately before it commits.
+- kind `tree`: `git write-tree` of the index, re-verified by `commit` immediately before it commits.
 - kind `post`: sha256 of the file at `path` — the `--body-file` of the coming gh post.
 
-### Tool `git_commit`
+### Tool `commit`
 
 Commits the staged diff: hooks on (never `--no-verify`), identity trailers
 injected (`AI-assistance: <agent> (<model>)` and
 `Co-authored-by: <agent> <noreply@<provider-domain>>`, domain derived from
 the model's baseUrl — unverifiable segments drop), caller trailers ride
-along. It does **not** run the fresh review — `commit-gate` still does, before
-this tool is called; its reviewer lane uses the fast read-only model at high
-thinking (the judgment model at maximum thinking only for design-grade
-artifacts, unsettleable reads, or blocking findings). Gates, in order: the checkout claim; a
-review bind for the staged tree (a pre-approved commit — standing allow
-or session grant — waives the missing bind; the uncovered case's TUI
-fallback is a plain-language confirm that the user personally reviewed
-the final diff just now); then an approval (standing → session → dialog). On success it
-verifies the landing commit in the log and spends the bind row. If a hook
-mutated the index mid-commit, the commit lands but the result states the
-divergence — the row stays unspent, re-review and re-bind.
+along. It does **not** run the fresh review — `commit-gate` still does,
+before this tool is called; its reviewer lane uses the fast read-only
+model at high thinking (the judgment model at maximum thinking only for
+design-grade artifacts, unsettleable reads, or blocking findings). Gates,
+in order: the checkout claim; a review bind for the staged tree (a
+pre-approved commit — standing allow or session grant — waives the missing
+bind; the uncovered case's TUI fallback is a plain-language confirm that
+the user personally reviewed the final diff just now); then an approval
+(standing → session → dialog). On success it verifies the landing commit
+in the log and spends the bind row. If a hook mutated the index
+mid-commit, the commit lands but the result states the divergence — the
+row stays unspent, re-review and re-bind.
 
-## Review surfaces (extension 3)
+## Review surfaces
 
 No-gh-write environments are first-class: both tools' results are the
 deliverable, paste-ready, no posting, no network. The TUI result row expands
 to the full text; headless gets it as the whole response.
 
-### Tool `pr_draft`
+### Tool `draft`
 
 Writes/overwrites `pr_<branch-slug>.md` in the project root. Inputs:
 `body` (the model composes it — what/why, root cause, tests+results),
-`assistance` (what the agent did, what the human reviewed and stands behind —
-appended as the `## AI assistance` section when the body carries none; a
-body with no section and no param refuses), optional `base`/`head` (defaults:
-remote HEAD branch / current branch). Where a PR template exists it is the
-envelope — a single file (`.github/PULL_REQUEST_TEMPLATE.md`,
+`assistance` (what the agent did, what the human reviewed and stands
+behind — appended as the `## AI assistance` section when the body carries
+none; a body with no section and no param refuses), optional `base`/`head`
+(defaults: remote HEAD branch / current branch). Where a PR template exists
+it is the envelope — a single file (`.github/PULL_REQUEST_TEMPLATE.md`,
 `PULL_REQUEST_TEMPLATE.md`, `docs/PULL_REQUEST_TEMPLATE.md`, either case) or
 a template directory (`.github/PULL_REQUEST_TEMPLATE/` — `default.md`, else
 the first `.md`) — the body must carry the template's headings (any level,
 line-exact) or the call refuses naming them. A template that carries its own
 AI/assistance section makes filling that section the disclosure: nothing is
-appended. Returns the path, the full body, a locally
-derived compare URL (`https://github.com/<owner>/<repo>/compare/<base>...<head>`),
-and the landed base..head commits for body-sync. An unparseable remote is a
-loud error naming the manual path. Overwrite is the update path after new
-commits land.
+appended. Returns the path, the full body, a locally derived compare URL
+(`https://github.com/<owner>/<repo>/compare/<base>...<head>`), and the
+landed base..head commits for body-sync. An unparseable remote is a loud
+error naming the manual path. Overwrite is the update path after new commits
+land.
 
-### Tool `review_text`
+### Tool `review`
 
 Returns the text in the tool result; the marker is appended by the tool.
 
@@ -207,6 +231,24 @@ it cannot mark or attribute (unverifiable agent → error; unverifiable model
 duplicate is never appended, a quoted marker never suppresses it. Comments
 carry no marker: the bare-findings shape is the comment's own (its anchor
 plays the footer's role), and the review's footer discloses.
+
+## Result hints
+
+Tool results chain the workflow with one bracketed `[next: …]` line,
+appended only when the named step is real for the caller — `bind` names its
+spender, `commit` names the push/draft follow-ups, `draft` names the post,
+`checkout worktree` names working under the returned path, `approve` names
+the now-dialog-free op. The convention (not the wording) is the contract;
+the texts live in `src/format.ts` under test.
+
+## Status bar
+
+One footer line, parts merged in registration order with the part labels
+carrying the domain (`checkout: …`, `approved: …`, `committed …`) —
+bracketed segments that read apart on pi's single shared status line, the
+shape pi-minimal-dispatch's `[lanes: …]` pinned. Session approvals render
+as action names; one-time dialog approvals annotate the tool result instead
+of persisting; a dialog in flight shows `waiting on person: …`.
 
 ## Non-goals
 

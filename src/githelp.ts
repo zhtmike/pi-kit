@@ -129,3 +129,42 @@ export async function repoIdentity(exec: ExecFn, dir: string): Promise<string | 
 	if (t.status === "ok" && t.github) return `${t.ident.owner}/${t.ident.name}`;
 	return undefined;
 }
+
+// --- draft lookups ------------------------------------------------------------------------
+
+/** The current branch's short name (draft's default head). */
+export async function headBranch(exec: ExecFn, root: string): Promise<string> {
+	const r = await run(exec, ["rev-parse", "--abbrev-ref", "HEAD"], { cwd: root });
+	if (r.code !== 0) throw new Error(`git rev-parse --abbrev-ref HEAD failed: ${r.stderr.trim()}`);
+	return r.stdout.trim();
+}
+
+/** draft's default base: the remote HEAD branch, else `main`. */
+export async function defaultBase(exec: ExecFn, root: string): Promise<string> {
+	const r = await run(exec, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], { cwd: root });
+	if (r.code === 0) {
+		const branch = r.stdout.trim().split("/").slice(1).join("/");
+		if (branch !== "") return branch;
+	}
+	return "main";
+}
+
+/** The first push remote URL among origin/upstream (fetch fallback) — the compare URL's source. */
+export async function pushRemoteUrl(exec: ExecFn, root: string): Promise<string> {
+	for (const remote of ["origin", "upstream"]) {
+		const r = await run(exec, ["remote", "get-url", "--push", remote], { cwd: root });
+		if (r.code === 0 && r.stdout.trim() !== "") return r.stdout.trim();
+		const fb = await run(exec, ["remote", "get-url", remote], { cwd: root });
+		if (fb.code === 0 && fb.stdout.trim() !== "") return fb.stdout.trim();
+	}
+	throw new Error("no 'origin'/'upstream' remote — the compare URL needs one; add a remote and re-run draft");
+}
+
+/** `base..head` commits, one `%h %s` line each (draft's landed-commits payload for body-sync). */
+export async function logRange(exec: ExecFn, root: string, base: string, head: string): Promise<string> {
+	const r = await run(exec, ["log", "--format=%h %s", `${base}..${head}`], { cwd: root });
+	if (r.code !== 0) {
+		throw new Error(`git log ${base}..${head} failed: ${r.stderr.trim()} — check the branch names (base '${base}' must exist locally; fetch it first if only the remote knows it).`);
+	}
+	return r.stdout;
+}

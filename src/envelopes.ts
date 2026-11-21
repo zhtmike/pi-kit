@@ -1,13 +1,15 @@
 /**
- * Review-surface envelopes — the universal shapes review_text emits and
- * pr_draft enforces (disclosure presence, template coverage). Verdict
+ * Review-surface envelopes — the universal shapes review emits and draft
+ * enforces (disclosure presence, template coverage). Verdict
  * vocabulary is fixed: `addressed` / `skipped`; every other token stays prose.
  * Pure: no host imports.
  */
 
 import { ASSISTANCE_HEADING_RE, assistanceSection, replyMarker, summaryFooter, type Identity } from "./identity.ts";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
-// --- review_text -------------------------------------------------------------------------
+// --- review -------------------------------------------------------------------------
 
 export interface CommentInput {
 	file: string;
@@ -69,7 +71,7 @@ export function summaryText(text: string, id: Identity): string {
 	return `${text.replace(/\s+$/, "")}\n\n${footer}`;
 }
 
-// --- pr_draft ---------------------------------------------------------------------------
+// --- draft --------------------------------------------------------------------------
 
 export interface DraftCheck {
 	/** The final body (disclosure appended when it was absent). */
@@ -115,6 +117,34 @@ export function checkDraft(body: string, assistance: string | undefined, templat
 		out = `${out}\n\n${assistanceSection(id, assistance)}`;
 	}
 	return { body: out, templateMissing: [] };
+}
+
+// --- PR template discovery (draft) -------------------------------------------------------
+
+/** Single-file PR template candidates, in preference order, either case. */
+export const TEMPLATE_CANDIDATES = [
+	".github/PULL_REQUEST_TEMPLATE.md",
+	".github/pull_request_template.md",
+	"PULL_REQUEST_TEMPLATE.md",
+	"pull_request_template.md",
+	"docs/PULL_REQUEST_TEMPLATE.md",
+];
+const TEMPLATE_DIRS = [".github/PULL_REQUEST_TEMPLATE", ".github/pull_request_template", "PULL_REQUEST_TEMPLATE"];
+
+/** The repo's PR template: a candidate file, else a template directory's `default.md` or first `.md`. undefined when the repo pins none. */
+export function readTemplate(root: string): { path: string; text: string } | undefined {
+	for (const rel of TEMPLATE_CANDIDATES) {
+		const p = path.join(root, rel);
+		if (fs.existsSync(p)) return { path: rel, text: fs.readFileSync(p, "utf8") };
+	}
+	for (const dir of TEMPLATE_DIRS) {
+		const d = path.join(root, dir);
+		if (!fs.existsSync(d) || !fs.statSync(d).isDirectory()) continue;
+		const files = fs.readdirSync(d).filter((f) => f.endsWith(".md")).sort();
+		const pick = files.includes("default.md") ? "default.md" : files[0];
+		if (pick !== undefined) return { path: `${dir}/${pick}`, text: fs.readFileSync(path.join(d, pick), "utf8") };
+	}
+	return undefined;
 }
 
 // --- remote URLs ------------------------------------------------------------------------

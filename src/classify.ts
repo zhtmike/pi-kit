@@ -198,7 +198,7 @@ function classifyGit(words: string[]): Classification {
 		if (args.includes("--amend") || args.includes("--no-verify") || args.includes("-n")) {
 			return destructive(`git ${sub}`, target);
 		}
-		return refuse(`git ${sub}`, "git commit is refused in bash — use the git_commit tool (hooks on, identity trailers, review bind). --amend/--no-verify are destructive-tier and need the dialog.", target);
+		return refuse(`git ${sub}`, "git commit is refused in bash — use the commit tool (hooks on, identity trailers, review bind). --amend/--no-verify are destructive-tier and need the dialog.", target);
 	}
 	if (sub === "push") {
 		const flags = args.filter((a) => a.startsWith("-"));
@@ -271,7 +271,7 @@ function ghBodyArgs(args: string[]): { inline?: boolean; bodyFile?: string; stdi
 }
 
 function ghPostRefusal(what: string): string {
-	return `${what} with inline --body (or stdin/heredoc/pipe) is refused — compose the text with review_text, write it to a file, bind it (review_bind kind post), then re-post with --body-file <file>.`;
+	return `${what} with inline --body (or stdin/heredoc/pipe) is refused — compose the text with review, write it to a file, bind it (bind kind post), then re-post with --body-file <file>.`;
 }
 
 function classifyGh(words: string[]): Classification {
@@ -330,7 +330,7 @@ function classifyGh(words: string[]): Classification {
 		// Postable prose via -f fields (comment bodies) rides the same bind rule as --body.
 		const prose = ["body", "body_text", "bodyMarkdown", "comment"].filter((k) => fields.has(k));
 		if (prose.length > 0) {
-			return refuse("gh api", `gh api POST carrying postable prose via -f ${prose[0]}= — refuse-tier. Compose the text with review_text, then post it via 'gh pr comment <n> --body-file <file>' bound through review_bind (kind post).`);
+			return refuse("gh api", `gh api POST carrying postable prose via -f ${prose[0]}= — refuse-tier. Compose the text with review, then post it via 'gh pr comment <n> --body-file <file>' bound through bind (kind post).`);
 		}
 		return allow("gh api");
 	}
@@ -344,7 +344,7 @@ function classifyGh(words: string[]): Classification {
 		}
 		if (verb === "review") {
 			if (args.includes("--approve") || args.includes("--request-changes")) {
-				return refuse("gh pr review", "gh pr review --approve/--request-changes posts a review verdict — refuse-tier for agents; post findings as comments (review_text comment + gh pr review --comment --body-file).");
+				return refuse("gh pr review", "gh pr review --approve/--request-changes posts a review verdict — refuse-tier for agents; post findings as comments (review comment + gh pr review --comment --body-file).");
 			}
 			if (args.includes("--comment")) {
 				const b = ghBodyArgs(args);

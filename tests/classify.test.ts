@@ -205,10 +205,10 @@ t("force/delete push forms are destructive", () => {
 });
 
 // --- refuse --------------------------------------------------------------------------------
-t("bash git commit refuses naming git_commit", () => {
+t("bash git commit refuses naming the commit tool", () => {
 	for (const cmd of ["git commit -m x", "git commit -F msg.txt", "git commit -t tpl.txt", "git commit"]) {
 		const c = classifyCommand(cmd);
-		if (c.tier !== "refuse" || !/git_commit/.test(c.reason ?? "")) throw new Error(`${cmd}: ${JSON.stringify(c)}`);
+		if (c.tier !== "refuse" || !/commit tool/.test(c.reason ?? "")) throw new Error(`${cmd}: ${JSON.stringify(c)}`);
 	}
 });
 t("gh state changes refuse: merge/close/reopen/ready/issue delete", () => {

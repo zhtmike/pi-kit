@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { commentText, replyText, summaryText, checkDraft, templateHeadings, parseRemoteUrl, isGithubHost } from "../src/envelopes.ts";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { commentText, replyText, summaryText, checkDraft, templateHeadings, parseRemoteUrl, isGithubHost , readTemplate } from "../src/envelopes.ts";
 import { identityFrom, trailerLines, replyMarker, summaryFooter, domainOfBaseUrl } from "../src/identity.ts";
 
 let failures = 0;
@@ -65,18 +68,18 @@ t("summary closes with the AI-assistance footer; no double footer", () => {
 	assert.equal(summaryText(text, id), text);
 });
 
-// --- pr_draft -----------------------------------------------------------------------------
-t("pr_draft: body without disclosure and no assistance param refuses", () => {
+// --- draft -------------------------------------------------------------------------------
+t("draft: body without disclosure and no assistance param refuses", () => {
 	assert.throws(() => checkDraft("# My change\n\nFixes x.", undefined, undefined, id), /assistance/);
 });
-t("pr_draft: assistance param appends the section; body with its own section is kept", () => {
+t("draft: assistance param appends the section; body with its own section is kept", () => {
 	const out = checkDraft("# My change\n\nFixes x.", "agent implemented; human reviewed the design", undefined, id);
 	assert.match(out.body, /## AI assistance/);
 	assert.match(out.body, /agent implemented; human reviewed the design/);
 	const own = checkDraft("# My change\n\n## AI assistance\n\nHuman-reviewed.", undefined, undefined, id);
 	assert.equal(own.body.match(/## AI assistance/g)?.length, 1);
 });
-t("pr_draft: template headings must appear in the body; missing ones are named", () => {
+t("draft: template headings must appear in the body; missing ones are named", () => {
 	const template = "## What\n\n## Why\n\n## Tests\n";
 	const out = checkDraft("# Title\n\nBody without sections.", undefined, template, id);
 	assert.deepEqual(out.templateMissing, ["## What", "## Why", "## Tests"]);
@@ -121,6 +124,36 @@ t("remote parse: https/scp/ssh forms; SSH alias and bare host are unparseable", 
 	assert.equal(isGithubHost(gl.host), false);
 	assert.equal(isGithubHost("github.com"), true);
 	assert.equal(isGithubHost("gitlab.internal"), false);
+});
+
+// --- template discovery (draft) ---------------------------------------------------------
+
+t("readTemplate: single-file candidates, then dir default.md, else first .md; none → undefined", () => {
+	const withDir = (files: Record<string, string>, fn: (dir: string) => void) => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pikit-tpl-"));
+		for (const [rel, text] of Object.entries(files)) {
+			const p = path.join(dir, rel);
+			fs.mkdirSync(path.dirname(p), { recursive: true });
+			fs.writeFileSync(p, text);
+		}
+		try {
+			fn(dir);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	};
+	withDir({ ".github/PULL_REQUEST_TEMPLATE.md": "# T\n## A" }, (dir) => {
+		assert.deepEqual(readTemplate(dir), { path: ".github/PULL_REQUEST_TEMPLATE.md", text: "# T\n## A" });
+	});
+	withDir({ ".github/PULL_REQUEST_TEMPLATE/b.md": "b", ".github/PULL_REQUEST_TEMPLATE/default.md": "d" }, (dir) => {
+		assert.equal(readTemplate(dir)!.path, ".github/PULL_REQUEST_TEMPLATE/default.md");
+	});
+	withDir({ "PULL_REQUEST_TEMPLATE/z.md": "z", "PULL_REQUEST_TEMPLATE/a.md": "a" }, (dir) => {
+		assert.equal(readTemplate(dir)!.path, "PULL_REQUEST_TEMPLATE/a.md"); // sorted first
+	});
+	withDir({ "README.md": "x" }, (dir) => {
+		assert.equal(readTemplate(dir), undefined);
+	});
 });
 
 process.exit(failures === 0 ? 0 : 1);

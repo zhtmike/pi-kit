@@ -1,6 +1,6 @@
 /**
  * The claim runner — the rows of `claim.ts` driven over real fs/git, shared
- * by the checkout-claim floor, the `checkout` tool, and `git_commit`'s
+ * by the claim floor, the `checkout` tool, and `commit`'s
  * pre-commit gate. Blind probe / empty sid writes nothing and blocks; a
  * replace happens under the OWNER.lock discipline; `.pi` must be gitignored
  * before any stamp is created.
@@ -31,8 +31,8 @@ export function ensureClaim(root: string, self: StampRecord): EnsureResult {
 			ok: false,
 			reason:
 				self.sid === ""
-					? "checkout-claim: this session has no session id — claims cannot be written safely; the operation blocks (no stamp was created)."
-					: "checkout-claim: this process's start token is unreadable — liveness could never be verified; the operation blocks (no stamp was created).",
+					? "the checkout claim needs a session id — none is visible to this process; the operation blocks (no stamp was created)."
+					: "the checkout claim cannot verify liveness — this process's start token is unreadable; the operation blocks (no stamp was created).",
 		};
 	}
 	const d = decideClaim(readStamp(root), self, SELF_PROBE);

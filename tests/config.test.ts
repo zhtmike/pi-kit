@@ -48,7 +48,7 @@ t("defaults: no files → empty owners, no standing allows", () => {
 t("nested overwrite: agent dir then project, later layers win whole keys", () => {
 	withDir(
 		{
-			"agent/pi-kit.json": JSON.stringify({ agentName: "k", ownerLogins: ["a"], standingAllows: [{ repo: "a/r", shapes: ["git push"] }] }),
+			"agent/pi-kit.json": JSON.stringify({ agentName: "k", ownerLogins: ["a"], standingAllows: [{ repo: "a/r", shapes: ["push"] }] }),
 			"proj/.pi/pi-kit.json": JSON.stringify({ ownerLogins: ["b"] }),
 		},
 		(dir) => {
@@ -85,7 +85,7 @@ t("destructive/refuse shapes are rejected at load with the valid list", () => {
 		const prev = process.env.PI_CODING_AGENT_DIR;
 		process.env.PI_CODING_AGENT_DIR = path.join(dir, "agent");
 		try {
-			assert.throws(() => loadConfig(dir), /not a standing-allowable shape.*git_commit/);
+			assert.throws(() => loadConfig(dir), /not a standing-allowable shape.*valid shapes: commit, push, pr, comment, tag, release/);
 		} finally {
 			if (prev === undefined) delete process.env.PI_CODING_AGENT_DIR;
 			else process.env.PI_CODING_AGENT_DIR = prev;
@@ -94,17 +94,17 @@ t("destructive/refuse shapes are rejected at load with the valid list", () => {
 });
 
 t("standingCovers: exact repo, wildcard, and miss", () => {
-	const cfg = { ...DEFAULT_CONFIG, standingAllows: [{ repo: "zhtmike/skills", shapes: ["git_commit" as const] }, { repo: "*", shapes: ["gh comment" as const] }] };
-	assert.equal(standingCovers(cfg, "zhtmike/skills", "git_commit"), true);
-	assert.equal(standingCovers(cfg, "ZhtMike/Skills", "git_commit"), true); // case-insensitive
-	assert.equal(standingCovers(cfg, "zhtmike/other", "git_commit"), false);
-	assert.equal(standingCovers(cfg, "zhtmike/other", "gh comment"), true); // *
-	assert.equal(standingCovers(cfg, undefined, "gh comment"), true); // * matches even unresolvable repos
-	assert.equal(standingCovers(cfg, undefined, "git_commit"), false);
+	const cfg = { ...DEFAULT_CONFIG, standingAllows: [{ repo: "zhtmike/skills", shapes: ["commit" as const] }, { repo: "*", shapes: ["comment" as const] }] };
+	assert.equal(standingCovers(cfg, "zhtmike/skills", "commit"), true);
+	assert.equal(standingCovers(cfg, "ZhtMike/Skills", "commit"), true); // case-insensitive
+	assert.equal(standingCovers(cfg, "zhtmike/other", "commit"), false);
+	assert.equal(standingCovers(cfg, "zhtmike/other", "comment"), true); // *
+	assert.equal(standingCovers(cfg, undefined, "comment"), true); // * matches even unresolvable repos
+	assert.equal(standingCovers(cfg, undefined, "commit"), false);
 });
 
 t("ask shapes are the only allowable set", () => {
-	assert.deepEqual([...ASK_SHAPES], ["git_commit", "git push", "gh pr create", "gh pr edit", "gh comment", "git tag", "gh release"]);
+	assert.deepEqual([...ASK_SHAPES], ["commit", "push", "pr", "comment", "tag", "release"]);
 });
 
 process.exit(failures === 0 ? 0 : 1);

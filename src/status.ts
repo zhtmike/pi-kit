@@ -1,10 +1,10 @@
 /**
- * The one footer status line, shared by the extensions — parts merge in
- * registration order, last write wins per part. pi renders every extension's
- * status on a single line, space-joined with keys hidden, so the merged text
- * brackets itself — the closing `]` marks our segment's end against a
- * neighbor's; the part labels ("checkout:", "approved:") carry the domain.
- * Same-module state: one package, one jiti instance.
+ * The one footer status line — parts merge in registration order, last write
+ * wins per part. pi renders every extension's status on a single line,
+ * space-joined with keys hidden, so the merged text brackets itself — the
+ * closing `]` marks our segment's end against a neighbor's; the part labels
+ * ("checkout:", "approved:") carry the domain. Same-module state: one
+ * package, one jiti instance.
  */
 
 let sink: ((line: string | undefined) => void) | null = null;
