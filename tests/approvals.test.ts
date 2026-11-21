@@ -58,6 +58,17 @@ t("noun-guarded verbs do not grant", () => {
 	assert.deepEqual(grants("check the last push"), []);
 	assert.deepEqual(grants("inspect this commit"), []);
 });
+t("prohibitions and withheld approvals never grant (the false-grant families)", () => {
+	assert.deepEqual(grants("don't go ahead and push it"), []);
+	assert.deepEqual(grants("I can't approve this yet — hold off before you push"), []);
+	assert.deepEqual(grants("the run finished unapproved"), []);
+	assert.deepEqual(grants("I committed the fix already"), []); // past-tense narration
+	assert.deepEqual(grants("We pushed the hotfix"), []);
+	assert.deepEqual(grants("do not try to push"), []); // negation across filler words
+});
+t("trailing hedges do not grant", () => {
+	assert.deepEqual(grants("we can push later"), []);
+});
 t("negated verbs do not grant", () => {
 	assert.deepEqual(grants("do not push anything"), []);
 	assert.deepEqual(grants("don't commit yet"), []);

@@ -72,7 +72,7 @@ export function decideClaim(stamp: StampRecord | null | "malformed", self: Claim
  * (the extension's processStartId). Empty token on either side → unknown
  * (never dead). Different token kinds (date vs ticks) or a reused pid → dead.
  */
-export function probeWith(startTokenOf: (pid: number) => string, exists: (pid: number) => boolean): ClaimProbe {
+export function probeWith(startTokenOf: (pid: number) => string, exists: (pid: number) => boolean): (rec: { pid: number; token: string }) => Liveness {
 	return (rec) => {
 		if (rec.token === "") return "unknown";
 		const now = startTokenOf(rec.pid);

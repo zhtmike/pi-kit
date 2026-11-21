@@ -16,7 +16,7 @@ import { Type } from "typebox";
 import { defineTool, isToolCallEventType, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig, standingCovers, type AskShape, type PiKitConfig } from "../src/config.ts";
 import { classifyCommand, type Classification } from "../src/classify.ts";
-import { APPROVAL_ACTIONS, foldEntry, parseApproval, type ApprovalAction } from "../src/approvals.ts";
+import { foldEntry, parseApproval, type ApprovalAction } from "../src/approvals.ts";
 import { identityFrom, trailerLines } from "../src/identity.ts";
 import { findBind, recordBinds, sha256File, spendBind } from "../src/binds.ts";
 import { ensureClaimAt, selfOf } from "../src/claimrun.ts";
@@ -41,7 +41,7 @@ export default function (pi: ExtensionAPI) {
 	let grants = new Set<ApprovalAction>();
 	let misses: string[] = [];
 	let recordFailure: string | undefined;
-	let currentSid = ""; // for best-effort quit hygiene outside event contexts
+	const allowedVia = new Map<string, string>(); // toolCallId → approval source (headless result annotation)
 
 	const childMarker = (): boolean =>
 		process.env.PI_MINIMAL_DISPATCH_CHILD === "1" || Object.keys(process.env).some((k) => k.startsWith("NIGHTWATCH_"));
@@ -84,7 +84,6 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_start", (event, ctx) => {
-		currentSid = ctx.sessionManager.getSessionId() ?? "";
 		bindStatusSink((line) => ctx.ui.setStatus("pi-kit", line));
 		// In-memory state rebuilds from the file at every session_start; a fork
 		// clears so a later reload does not replay the parent's set.
@@ -118,13 +117,12 @@ export default function (pi: ExtensionAPI) {
 
 		if (c.tier === "ask") {
 			// gh posts bind first: --body-file must point at a bound file.
-			if (c.bodyFile !== undefined && !await checkPostBind(c.bodyFile)) {
+			if (c.bodyFile !== undefined && !(await checkPostBind(dir, c.bodyFile))) {
 				return { block: true, reason: bindRefusal(c.bodyFile) };
 			}
 			// push resolves an owner; non-owner and unparseable targets refuse without a dialog.
 			if (c.shape === "git push") {
-				const words = commandWords(event.input.command);
-				const pushArgs = pushArgsOf(words);
+				const pushArgs = c.pushArgs ?? [];
 				const t = await resolvePushTarget(exec, dir, pushArgs);
 				if (t.status === "error") return { block: true, reason: `git push refused — ${t.note}` };
 				if (t.status === "unparseable") return { block: true, reason: `git push refused — ${t.note}` };
@@ -141,17 +139,21 @@ export default function (pi: ExtensionAPI) {
 			const repoIdent = await repoIdentity(exec, dir);
 			if (standingShape(c) !== undefined && standingCovers(cfg, repoIdent, standingShape(c)!)) {
 				setStatusPart("gate", `standing allow: ${c.shape}`);
+				allowedVia.set(event.toolCallId, `standing allow (${standingShape(c)})`);
 				return;
 			}
 			const action = approvalActionOf(c.shape);
 			if (action !== undefined && grants.has(action)) {
 				setStatusPart("gate", `session approval covers ${c.shape}`);
+				allowedVia.set(event.toolCallId, "session approval");
 				return;
 			}
 			if (ctx.hasUI) {
 				setStatusPart("wait", `waiting on person: ${c.shape}`);
 				const options = action !== undefined ? ["Approve once", "Approve for this session", "Refuse"] : ["Approve once", "Refuse"];
-				const choice = await ctx.ui.select([`pi-kit gate: ${c.tier}`, event.input.command, ...(c.reason ?? "").split("\n")].join("\n"), options);
+				const missLine = misses.length > 0 ? `last approval parse miss: "${misses[misses.length - 1]}" — did you mean one of its verbs?` : "";
+				try {
+				const choice = await ctx.ui.select([`pi-kit gate: ${c.tier}`, event.input.command, ...(c.reason ?? "").split("\n"), missLine].filter((l) => l !== "").join("\n"), options);
 				setStatusPart("wait", undefined);
 				if (choice === undefined || choice === "Refuse") {
 					return { block: true, reason: `refused in dialog: ${event.input.command}` };
@@ -162,26 +164,32 @@ export default function (pi: ExtensionAPI) {
 				}
 				setStatusPart("gate", `dialog-approved: ${c.shape}`);
 				return;
+				} finally {
+					setStatusPart("wait", undefined);
+				}
 			}
-			const shapeKey = standingShape(c) ?? c.shape;
+			const shapeKey = standingShape(c);
+			const suggestion = shapeKey !== undefined ? ` Standing allow for this shape: { "repo": ${repoIdent ?? "*"}, "shapes": ["${shapeKey}"] } in pi-kit.json standingAllows.` : "";
 			return {
 				block: true,
 				reason:
-					`not covered: ${event.input.command}. Ask-tier shapes need a standing allow, a session approval, or the interactive dialog — headless runs get none of the dialog. ` +
-					`Standing allow for this shape: { "repo": ${repoIdent ?? "*"}, "shapes": ["${shapeKey}"] } in pi-kit.json standingAllows.`,
+					`not covered: ${event.input.command}. Ask-tier shapes need a standing allow, a session approval, or the interactive dialog — headless runs get none of the dialog.${suggestion}`,
 			};
 		}
 
 		// destructive
 		if (ctx.hasUI) {
 			setStatusPart("wait", `waiting on person: ${c.shape} (destructive)`);
-			const choice = await ctx.ui.select(["pi-kit gate: destructive", event.input.command, "Destructive-tier: approve-once only — never covered by any approval."].join("\n"), ["Approve once", "Refuse"]);
-			setStatusPart("wait", undefined);
-			if (choice === "Approve once") {
-				setStatusPart("gate", `dialog-approved: ${c.shape} (once)`);
-				return;
+			try {
+				const choice = await ctx.ui.select(["pi-kit gate: destructive", event.input.command, "Destructive-tier: approve-once only — never covered by any approval."].join("\n"), ["Approve once", "Refuse"]);
+				if (choice === "Approve once") {
+					setStatusPart("gate", `dialog-approved: ${c.shape} (once)`);
+					return;
+				}
+				return { block: true, reason: `refused in dialog: ${event.input.command}` };
+			} finally {
+				setStatusPart("wait", undefined);
 			}
-			return { block: true, reason: `refused in dialog: ${event.input.command}` };
 		}
 		return {
 			block: true,
@@ -189,11 +197,11 @@ export default function (pi: ExtensionAPI) {
 		};
 	});
 
-	async function checkPostBind(file: string): Promise<boolean> {
-		const root = await gitRootOf(exec, process.cwd());
+	async function checkPostBind(dir: string, file: string): Promise<boolean> {
+		const root = await gitRootOf(exec, dir);
 		if (root === null) return false;
 		try {
-			const hash = sha256File(path.resolve(file));
+			const hash = sha256File(path.resolve(dir, file));
 			return findBind(root, "post", hash, "") !== undefined;
 		} catch {
 			return false;
@@ -206,6 +214,13 @@ export default function (pi: ExtensionAPI) {
 			"bind it (review_bind kind post, path <file>), then re-run with --body-file. Inline --body, heredocs, and pipes are refused outright."
 		);
 	}
+
+	pi.on("tool_result", async (event) => {
+		const source = allowedVia.get(event.toolCallId);
+		if (source === undefined) return;
+		allowedVia.delete(event.toolCallId);
+		return { content: [...event.content, { type: "text" as const, text: `\n[pi-kit: allowed via ${source}]` }] };
+	});
 
 	// --- review_bind -------------------------------------------------------------------------
 
@@ -339,6 +354,7 @@ export default function (pi: ExtensionAPI) {
 			// Landing verification: the log-verified commit; a hook that mutated the
 			// index mid-commit lands a diverged tree — state it, keep the row.
 			const shaRun = await exec("git", ["rev-parse", "HEAD"], { cwd: root });
+			if (shaRun.code !== 0) throw new Error(`post-commit verification failed — git rev-parse HEAD: ${shaRun.stderr.trim()}`);
 			const treeRun = await exec("git", ["rev-parse", "HEAD^{tree}"], { cwd: root });
 			const landingTree = treeRun.stdout.trim();
 			if (landingTree !== "" && landingTree !== treeHash) {
@@ -362,7 +378,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (bind !== undefined) {
 				const self = selfOf(sid);
-				if (!spendBind(root, self, "tree", treeHash)) throw new Error(`commit landed (${sha}) but the binds lock is held — the row stays unspent; retry git_commit's spend by re-running after the lock clears or re-bind and note the double-bind.`);
+				if (!spendBind(root, self, "tree", treeHash)) {
+					throw new Error(`commit landed (${sha}) but the binds lock was held — the row stays unspent and ages out harmlessly (rows are hash-keyed); no re-bind needed.`);
+				}
 			}
 			setStatusPart("gate", `committed ${sha.slice(0, 8)} (${approvalSource})`);
 			return ok(
@@ -390,16 +408,6 @@ function commitMessage(params: { subject: string; body?: string; trailers?: stri
 	if (body !== undefined && body !== "") parts.push(body);
 	if (trailers.length > 0) parts.push(trailers.join("\n"));
 	return parts.join("\n");
-}
-
-function commandWords(command: string): string[] {
-	return command.trim().split(/\s+/);
-}
-
-function pushArgsOf(words: string[]): string[] {
-	const i = words.findIndex((w) => w === "push");
-	if (i < 0) return [];
-	return words.slice(i + 1).filter((w) => w !== "&&" && w !== "||" && w !== ";" && w !== "|");
 }
 
 /** The standingAllows shape key for a classified shape, when one exists. */

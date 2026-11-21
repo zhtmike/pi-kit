@@ -75,7 +75,12 @@ export default function (pi: ExtensionAPI) {
 			const file = path.join(root, `pr_${slugify(head)}.md`);
 			fs.writeFileSync(file, `${check.body}\n`);
 			// Compare URL — local string work from the push remote.
-			const url = await remoteUrl(exec, root);
+			let url: string;
+			try {
+				url = await remoteUrl(exec, root);
+			} catch (e) {
+				throw new Error(`${(e as Error).message} (the draft file is written at ${file} — open the PR by hand from it)`);
+			}
 			const ident = parseRemoteUrl(url);
 			let compare: string;
 			if (ident === undefined || !isGithubHost(ident.host)) {
@@ -111,7 +116,7 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Return paste-ready review-surface texts in the tool result — no posting, no dialog. " +
 			"kind comment: one imperative ask with a file:line anchor, at most one fact. " +
-			"kind reply: a thread reply opening 'Addressed in <commit>:' or 'Skipped, with reasoning:', the answered finding quoted as a > blockquote. " +
+			"kind reply: the answered finding opens as a > blockquote, then 'Addressed in <commit>:' or 'Skipped, with reasoning:', answers below. " +
 			"kind summary: the review body in blocks (verdict / findings / coverage), closed with the AI-assistance footer. " +
 			"The tool appends the marker (reply/summary); it refuses text it cannot mark or attribute.",
 		parameters: Type.Object({
@@ -121,7 +126,7 @@ export default function (pi: ExtensionAPI) {
 			ask: Type.Optional(Type.String({ description: "kind comment: one imperative ask" })),
 			fact: Type.Optional(Type.String({ description: "kind comment: at most one fact (a sibling path rides here)" })),
 			verdict: Type.Optional(stringEnum(["addressed", "skipped"] as const, { description: "kind reply: the verdict token" })),
-			quote: Type.Optional(Type.String({ description: "kind reply: the finding, request, or comment replied to — rendered at the top as a > blockquote" })),
+			quote: Type.Optional(Type.String({ description: "kind reply (required): the finding, request, or comment replied to — rendered at the top as a > blockquote" })),
 			answers: Type.Optional(Type.String({ description: "kind reply: the reply's own answer, below the verdict opener" })),
 			commit: Type.Optional(Type.String({ description: "kind reply: the commit that addressed it (required for 'addressed')" })),
 			verification: Type.Optional(Type.String({ description: "kind reply: the verification behind the answer" })),
@@ -174,7 +179,7 @@ export default function (pi: ExtensionAPI) {
 			const fb = await exec("git", ["remote", "get-url", remote], { cwd: root });
 			if (fb.code === 0 && fb.stdout.trim() !== "") return fb.stdout.trim();
 		}
-		throw new Error("no 'origin'/'upstream' remote — the compare URL needs one; add the remote or pass the branch names and open the PR by hand");
+		throw new Error("no 'origin'/'upstream' remote — the compare URL needs one; add a remote and re-run pr_draft");
 	}
 
 	function readTemplate(root: string): { path: string; text: string } | undefined {

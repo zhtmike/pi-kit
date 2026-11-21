@@ -54,8 +54,10 @@ export function replyText(r: ReplyInput, id: Identity): string {
 	if (r.verification !== undefined && r.verification.trim() !== "") lines.push(`- Verification: ${r.verification.trim()}`);
 	if (r.verdict === "skipped" && r.reason !== undefined) lines.push(`- Reason: ${r.reason.trim()}`);
 	const marker = replyMarker(id);
-	// a marked quote never gains a second marker
-	if (lines.some((l) => l.includes(marker))) return lines.join("\n");
+	// a text already ENDING in its own marker never gains a second — a marker
+	// inside a quoted line is the quoted reply's own, and this reply keeps its
+	const body = lines.join("\n");
+	if (body.trimEnd().endsWith(marker)) return body;
 	lines.push("", marker);
 	return lines.join("\n");
 }

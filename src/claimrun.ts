@@ -8,7 +8,7 @@
 
 import { hostname } from "node:os";
 import { BLIND, decideClaim, probeWith, type StampRecord } from "./claim.ts";
-import { createStamp, readStartToken, readStamp, takeLock, writeStamp } from "./stamp.ts";
+import { LOCK_NAME, createStamp, readStartToken, readStamp, takeLock, writeStamp } from "./stamp.ts";
 import { gitRootOf, piDirIgnored, type ExecFn } from "./githelp.ts";
 
 export type EnsureResult = { ok: true; row: number } | { ok: false; reason: string };
@@ -71,7 +71,7 @@ function afterEEXIST(root: string, self: StampRecord): EnsureResult {
 }
 
 function replaceUnderLock(root: string, self: StampRecord): EnsureResult {
-	const lock = takeLock(root, "OWNER.lock", self);
+	const lock = takeLock(root, LOCK_NAME, self);
 	if (!lock.ok) return { ok: false, reason: lock.reason };
 	try {
 		// Re-read under the lock: a racing writer may have claimed it first.

@@ -44,10 +44,13 @@ t("reply skipped opens 'Skipped, with reasoning:' and requires a reason", () => 
 t("reply addressed without a commit refuses", () => {
 	assert.throws(() => replyText({ verdict: "addressed", quote: "x" }, id), /commit/);
 });
-t("reply: a marked text never gains a second marker", () => {
+t("reply: each reply ends with its own marker — a quoted marker never suppresses it, an identical trailing one does", () => {
 	const once = replyText({ verdict: "addressed", quote: "x", commit: "abc" }, id);
 	const twice = replyText({ verdict: "addressed", quote: once, commit: "abc" }, id);
-	assert.equal(twice.split("AI-assisted reply").length - 1, 1);
+	assert.equal(twice.split("AI-assisted reply").length - 1, 2); // the quoted reply's + its own
+	assert.ok(twice.trimEnd().endsWith(replyMarker(id)));
+	const raw = `Addressed in \`abc\`:\n- Answers: y\n\n${replyMarker(id)}`;
+	assert.equal(replyText({ verdict: "addressed", quote: "x", answers: raw, commit: "abc" }, id).split("AI-assisted reply").length - 1, 1); // mid-text marker, own appended
 });
 t("marker drops the model parenthetical when unverifiable; small-print wrap always", () => {
 	assert.equal(replyMarker(bareId), "<sub>AI-assisted reply — pi (glm-5.3)</sub>");

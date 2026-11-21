@@ -79,7 +79,7 @@ quit/exit unlinks it best-effort (reload/new/resume/fork keep it).
 | `git status/diff/log/show/ls-files/rev-parse/describe/blame/grep`, `git reflog` (no expire/delete), `git fetch`, `git add`; `gh pr view/diff/list`, `gh issue view/diff/list`, `gh run view/list/download`, `gh repo view/list/download`, `gh label view/list`, `gh release view/list/download`, `gh workflow view/list/download`, `gh search …`; `gh api` GET | **allow** — `git add` still meets the claim floor |
 | `git push` (no force form, resolved owner ∈ `ownerLogins`); `gh pr create`; `gh pr edit --title/--body-file`; gh comment/reply/label edits; other `gh api` (implicit-POST reads incl. graphql queries) | **ask** — dialog offers once / for-this-session / refuse; session approvals and `standingAllows` may cover it |
 | `git rebase`, `reset --hard`, `clean`, `commit --amend`, `commit --no-verify`/`-n`, `restore`/`checkout -- <path>`/`checkout .`, `stash drop/clear`, force/delete push forms (`--force`, `-f`, `--force-with-lease`, `--force-if-includes`, `+refspec`, `:branch`, `--delete`), `branch -D` | **destructive** — dialog offers once / refuse only; never covered |
-| bash `git commit` in any form; `git push` to a non-`ownerLogins` (or unparseable — SSH alias, non-GitHub) remote; `gh pr review --approve/--request-changes`; `gh pr merge/close/reopen/ready`; issue close/reopen/delete; PR→draft; `gh api` non-GET that merges/closes/submits a review verdict; graphql `mutation` | **refuse** — no dialog, no coverage; the reason names `git_commit` where it exists |
+| bash `git commit` in any plain form (`-m`, `-F`, `-t`; the `--amend`/`--no-verify`/`-n` forms are destructive-tier); `git push` to a non-`ownerLogins` (or unparseable — SSH alias, non-GitHub) remote; `gh pr review --approve/--request-changes`; `gh pr merge/close/reopen/ready`; issue close/reopen/delete; PR→draft; `gh api` non-GET that merges/closes/submits a review verdict; graphql `mutation` | **refuse** — no dialog, no coverage; the reason names `git_commit` where it exists |
 
 Closing rules: anything that changes PR/issue state or posts a review verdict
 is refuse. A gh post carrying prose is ask **only** with `--body-file` of a
@@ -111,8 +111,15 @@ the resumed session's set). Recognition is spelling-robust, not
 phrase-frozen: a directive gated verb ("push", "please commit", "feel free
 to open a PR") grants; an approval signal (approved / OK'd / confirmed /
 green-light / "go ahead" / "ship it" / LGTM) makes verbs named in the same
-message count. Guards: negated verbs and noun-governed verbs ("the previous
-commit") never count; hedges ("maybe", "should we", "later") do not grant.
+message count. Guards: a verb or signal governed by not/n't/never/"hold
+off" inside its own clause never counts (negation does not cross a clause
+boundary — "Do not push, just commit" keeps `commit` grantable);
+noun-governed verbs ("the previous commit") never count; past-tense
+narration ("we pushed the hotfix") is not a verb form; hedges ("maybe",
+"should we", "later" on either side of the verb) do not grant. Residual,
+deliberate: a message-initial compound noun ("Commit message needs work")
+can read as a directive — coverage is bounded to ask-tier actions, every
+grant shows on the footer, and the dialog is the backstop.
 Coverable actions: `commit`, `push` (owner-checked), `pr create`, `pr edit`.
 A named commit or push covers every later matching op until quit — new
 files, public signatures, new dependencies, >50 lines included; the
@@ -165,9 +172,11 @@ Writes/overwrites `pr_<branch-slug>.md` in the project root. Inputs:
 `assistance` (what the agent did, what the human reviewed and stands behind —
 appended as the `## AI assistance` section when the body carries none; a
 body with no section and no param refuses), optional `base`/`head` (defaults:
-remote HEAD branch / current branch). Where `.github/PULL_REQUEST_TEMPLATE*`
-exists it is the envelope — the body must carry the template's headings or
-the call refuses naming them. Returns the path, the full body, a locally
+remote HEAD branch / current branch). Where a PR template exists
+(`.github/PULL_REQUEST_TEMPLATE.md`, `PULL_REQUEST_TEMPLATE.md`,
+`docs/PULL_REQUEST_TEMPLATE.md` — first match, either case) it is the
+envelope — the body must carry the template's headings (line-exact) or the
+call refuses naming them. Returns the path, the full body, a locally
 derived compare URL (`https://github.com/<owner>/<repo>/compare/<base>...<head>`),
 and the landed base..head commits for body-sync. An unparseable remote is a
 loud error naming the manual path. Overwrite is the update path after new
@@ -183,7 +192,10 @@ Returns the text in the tool result; the marker is appended by the tool.
 
 Verdict vocabulary is fixed: `addressed` / `skipped`. The tool refuses text
 it cannot mark or attribute (unverifiable agent → error; unverifiable model
-→ parenthetical drops); a marked quote never gains a second marker.
+→ parenthetical drops); each reply ends with its own marker — a trailing
+duplicate is never appended, a quoted marker never suppresses it. Comments
+carry no marker: the bare-findings shape is the comment's own (its anchor
+plays the footer's role), and the review's footer discloses.
 
 ## Non-goals
 
