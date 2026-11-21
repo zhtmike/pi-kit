@@ -30,7 +30,7 @@ t("comment: a non-positive line refuses", () => {
 t("reply addressed opens 'Addressed in <commit>:' and carries the marker", () => {
 	const text = replyText({ verdict: "addressed", answers: "the null check", commit: "abc1234", verification: "npm test green" }, id);
 	assert.match(text, /^Addressed in `abc1234`:$/m);
-	assert.match(text, /- Answers: the null check/);
+	assert.match(text, /^> the null check$/m);
 	assert.match(text, /- Verification: npm test green/);
 	assert.match(text, /AI-assisted reply — pi \(glm-5\.3\)$/m);
 });

@@ -43,7 +43,9 @@ export function replyText(r: ReplyInput, id: Identity): string {
 	}
 	const opener = r.verdict === "addressed" ? `Addressed in \`${r.commit}\`:` : "Skipped, with reasoning:";
 	const lines = [opener];
-	if (r.answers.trim() !== "") lines.push(`- Answers: ${r.answers.trim()}`);
+	// The answered finding rides as a markdown blockquote — GitHub-native quoting
+	// that survives collapsed threads and notifications.
+	if (r.answers.trim() !== "") lines.push(...r.answers.trim().split("\n").map((l) => `> ${l}`.trimEnd()));
 	if (r.verification !== undefined && r.verification.trim() !== "") lines.push(`- Verification: ${r.verification.trim()}`);
 	if (r.verdict === "skipped" && r.reason !== undefined) lines.push(`- Reason: ${r.reason.trim()}`);
 	const marker = replyMarker(id);

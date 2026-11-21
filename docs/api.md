@@ -178,8 +178,8 @@ commits land.
 Returns the text in the tool result; the marker is appended by the tool.
 
 - kind `comment`: `file:line: <one imperative ask>` plus at most one fact.
-- kind `reply`: opens `Addressed in \`<commit>\`:` (commit required) or `Skipped, with reasoning:` (reason required); fields `answers` (what it replies to, quoted or restated), `verification`. Marker: `AI-assisted reply — <agent> (<model>)`.
-- kind `summary`: the caller's text closed with `AI assistance (<agent>, <model>) was used for this review.`
+- kind `reply`: opens `Addressed in \`<commit>\`:` (commit required) or `Skipped, with reasoning:` (reason required); the answered finding (`answers`) renders as a `>` blockquote — GitHub-native quoting that survives collapsed threads; `verification` rides as a bullet. Marker: `AI-assisted reply — <agent> (<model>)`. A reply lands in the thread it answers — never as a top-level comment.
+- kind `summary`: the caller's text — block-composed (verdict / findings / coverage) — closed with `AI assistance (<agent>, <model>) was used for this review.`
 
 Verdict vocabulary is fixed: `addressed` / `skipped`. The tool refuses text
 it cannot mark or attribute (unverifiable agent → error; unverifiable model

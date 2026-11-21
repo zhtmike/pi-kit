@@ -111,8 +111,8 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Return paste-ready review-surface texts in the tool result — no posting, no dialog. " +
 			"kind comment: one imperative ask with a file:line anchor, at most one fact. " +
-			"kind reply: a thread reply opening 'Addressed in <commit>:' or 'Skipped, with reasoning:'. " +
-			"kind summary: the review body, closed with the AI-assistance footer. " +
+			"kind reply: a thread reply opening 'Addressed in <commit>:' or 'Skipped, with reasoning:', the answered finding quoted as a > blockquote. " +
+			"kind summary: the review body in blocks (verdict / findings / coverage), closed with the AI-assistance footer. " +
 			"The tool appends the marker (reply/summary); it refuses text it cannot mark or attribute.",
 		parameters: Type.Object({
 			kind: stringEnum(["comment", "reply", "summary"] as const, { description: "Which review surface" }),
@@ -121,11 +121,11 @@ export default function (pi: ExtensionAPI) {
 			ask: Type.Optional(Type.String({ description: "kind comment: one imperative ask" })),
 			fact: Type.Optional(Type.String({ description: "kind comment: at most one fact (a sibling path rides here)" })),
 			verdict: Type.Optional(stringEnum(["addressed", "skipped"] as const, { description: "kind reply: the verdict token" })),
-			answers: Type.Optional(Type.String({ description: "kind reply: the finding, request, or comment replied to, quoted or restated" })),
+			answers: Type.Optional(Type.String({ description: "kind reply: the finding, request, or comment replied to — the tool renders it as a > blockquote" })),
 			commit: Type.Optional(Type.String({ description: "kind reply: the commit that addressed it (required for 'addressed')" })),
 			verification: Type.Optional(Type.String({ description: "kind reply: the verification behind the answer" })),
 			reason: Type.Optional(Type.String({ description: "kind reply: why it was skipped (required for 'skipped')" })),
-			text: Type.Optional(Type.String({ description: "kind summary: the summary body" })),
+			text: Type.Optional(Type.String({ description: "kind summary: the review body, block-composed (verdict / findings / coverage)" })),
 		}),
 
 		async execute(_id, params, _signal, _onUpdate, ctx) {
