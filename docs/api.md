@@ -178,7 +178,7 @@ commits land.
 Returns the text in the tool result; the marker is appended by the tool.
 
 - kind `comment`: `file:line: <one imperative ask>` plus at most one fact.
-- kind `reply`: opens `Addressed in \`<commit>\`:` (commit required) or `Skipped, with reasoning:` (reason required); the answered finding (`answers`) renders as a `>` blockquote — GitHub-native quoting that survives collapsed threads; `verification` rides as a bullet. Marker: `AI-assisted reply — <agent> (<model>)`. A reply lands in the thread it answers — never as a top-level comment.
+- kind `reply`: opens `Addressed in \`<commit>\`:` (commit required) or `Skipped, with reasoning:` (reason required); the answered finding (`answers`) renders as a `>` blockquote — GitHub-native quoting that survives collapsed threads; `verification` rides as a bullet. Marker: `<sub>AI-assisted reply — <agent> (<model>)</sub>` — conversation-gate's small-print line, rendered small on the remote. A reply lands in the thread it answers — never as a top-level comment.
 - kind `summary`: the caller's text — block-composed (verdict / findings / coverage) — closed with `AI assistance (<agent>, <model>) was used for this review.`
 
 Verdict vocabulary is fixed: `addressed` / `skipped`. The tool refuses text

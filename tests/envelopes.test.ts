@@ -32,7 +32,7 @@ t("reply addressed opens 'Addressed in <commit>:' and carries the marker", () =>
 	assert.match(text, /^Addressed in `abc1234`:$/m);
 	assert.match(text, /^> the null check$/m);
 	assert.match(text, /- Verification: npm test green/);
-	assert.match(text, /AI-assisted reply — pi \(glm-5\.3\)$/m);
+	assert.match(text, /<sub>AI-assisted reply — pi \(glm-5\.3\)<\/sub>$/m);
 });
 t("reply skipped opens 'Skipped, with reasoning:' and requires a reason", () => {
 	const text = replyText({ verdict: "skipped", answers: "naming nit", reason: "either shape is defensible" }, id);
@@ -48,9 +48,9 @@ t("reply: a marked text never gains a second marker", () => {
 	const twice = replyText({ verdict: "addressed", answers: once, commit: "abc" }, id);
 	assert.equal(twice.split("AI-assisted reply").length - 1, 1);
 });
-t("marker drops the model parenthetical when unverifiable", () => {
-	assert.equal(replyMarker(bareId), "AI-assisted reply — pi (glm-5.3)");
-	assert.equal(replyMarker(noModel), "AI-assisted reply — pi");
+t("marker drops the model parenthetical when unverifiable; small-print wrap always", () => {
+	assert.equal(replyMarker(bareId), "<sub>AI-assisted reply — pi (glm-5.3)</sub>");
+	assert.equal(replyMarker(noModel), "<sub>AI-assisted reply — pi</sub>");
 	assert.equal(summaryFooter(noModel), "AI assistance (pi) was used for this review.");
 });
 
