@@ -43,8 +43,8 @@ export default function (pi: ExtensionAPI) {
 	const grantSources = new Map<ApprovalAction, string>(); // action → quoted user text (the audit trail)
 	const allowedVia = new Map<string, string>(); // toolCallId → approval source (headless result annotation)
 
-	const childMarker = (): boolean =>
-		process.env.PI_MINIMAL_DISPATCH_CHILD === "1" || Object.keys(process.env).some((k) => k.startsWith("NIGHTWATCH_"));
+	/** Lanes carry the dispatch child marker; nothing else gets recorded-from. */
+	const childMarker = (): boolean => process.env.PI_MINIMAL_DISPATCH_CHILD === "1";
 
 	const humanChannel = (mode: string, source: string | undefined): boolean =>
 		mode === "tui" && source === "interactive" && !childMarker();
