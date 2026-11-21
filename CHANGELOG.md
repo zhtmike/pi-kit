@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.4 — 2026-11-21
+
+The footer segment drops its `pi-kit:` prefix — `[checkout: … · approved:
+commit, push]`. The part labels carry the domain, and the shape matches
+pi-minimal-dispatch's `[lanes: …]`: bracketed segments that read apart on
+pi's single shared status line. A new status suite pins the bracketed merge.
+
 ## 0.2.3 — 2026-11-21
 
 Pre-approvals go YOLO, per the owner's direction. Every approval dialog

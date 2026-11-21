@@ -52,7 +52,7 @@ reference never enters context.
 
 ## Testing
 
-`npm test` (six plain-node suites on the pure cores) and the typecheck gates
+`npm test` (seven plain-node suites on the pure cores) and the typecheck gates
 in CI (floor 1.4.0, canary latest). UI/event wiring is proven by live runs —
 the proving scenarios live in the repo's design history; when you exercise
 one, record what ran in the PR description.

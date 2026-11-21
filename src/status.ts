@@ -2,8 +2,9 @@
  * The one footer status line, shared by the extensions — parts merge in
  * registration order, last write wins per part. pi renders every extension's
  * status on a single line, space-joined with keys hidden, so the merged text
- * self-labels inside brackets — the closing `]` marks our segment's end
- * against a neighbor's. Same-module state: one package, one jiti instance.
+ * brackets itself — the closing `]` marks our segment's end against a
+ * neighbor's; the part labels ("checkout:", "approved:") carry the domain.
+ * Same-module state: one package, one jiti instance.
  */
 
 let sink: ((line: string | undefined) => void) | null = null;
@@ -15,7 +16,7 @@ function flush(): void {
 		sink(undefined);
 		return;
 	}
-	sink(`[pi-kit: ${[...parts.values()].join(" · ")}]`);
+	sink(`[${[...parts.values()].join(" · ")}]`);
 }
 
 /** Bind the writer (a ctx.ui.setStatus wrapper captured at session_start). */
