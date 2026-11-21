@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.3 — 2026-11-21
+
+Pre-approvals go YOLO, per the owner's direction. Every approval dialog
+offers "Approve until the session ends" — the destructive dialog included,
+where the session choice records one coarse `destructive` grant covering
+every destructive shape (still never standing-allowable; refuse-tier
+unchanged). A pre-approved commit (standing allow or session grant) waives
+the missing-bind confirm outright — the bind row still spends when present,
+and the uncovered case keeps the plain-language human confirm.
+
 ## 0.2.2 — 2026-11-21
 
 Every human-facing prompt speaks plainly now. The missing-bind fallback

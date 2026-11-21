@@ -29,7 +29,8 @@ pi install git:github.com/zhtmike/pi-kit
   tool; `git push`, `git tag` writes, gh post surfaces and release
   publishing → ask; the destructive footguns) gate. Ask-tier needs
   coverage (standing allow, session approval, dialog), destructive dialogs
-  approve-once only, refuse shapes block naming the fix. `pkill -f` /
+  offering once / until-session-ends / refuse (a session destructive grant
+  covers the whole class), refuse shapes block naming the fix. `pkill -f` /
   `pgrep -f` self-match blocks with the kill-by-PID remedy.
 
 ## Configuration

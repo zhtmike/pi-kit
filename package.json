@@ -1,6 +1,6 @@
 {
 	"name": "pi-kit",
-	"version": "0.2.2",
+	"version": "0.2.3",
 	"description": "Personal hard-boundary tools for the pi coding agent: checkout claim, git/gh approval floors, review-surface scaffolds",
 	"author": "Mike Cheung",
 	"keywords": [

@@ -106,7 +106,6 @@ export default function (pi: ExtensionAPI) {
 		if (dir === null) {
 			return { block: true, reason: `claim target '${c.targetDir}' did not fully expand (unset variable or unsupported form) — name the path absolutely or run from inside the tree` };
 		}
-		const sid = ctx.sessionManager.getSessionId() ?? "";
 
 		if (c.tier === "ask") {
 			// gh posts bind first: --body-file must point at a bound file.
@@ -175,13 +174,21 @@ export default function (pi: ExtensionAPI) {
 			};
 		}
 
-		// destructive
+		// destructive — a session destructive grant (the coarse YOLO switch) covers every destructive shape
+		if (grants.has("destructive")) {
+			allowedVia.set(event.toolCallId, "session approval (destructive)");
+			return;
+		}
 		if (ctx.hasUI) {
 			setStatusPart("wait", `waiting on person: ${c.shape} (destructive)`);
 			try {
-				const choice = await ctx.ui.select(["pi-kit: this can destroy work — approve?", preview(event.input.command), "It can discard work or rewrite history. Approve once or refuse — session approvals never cover it."].join("\n"), ["Approve once", "Refuse"]);
-				if (choice === "Approve once") {
-					allowedVia.set(event.toolCallId, "dialog (approve once)");
+				const choice = await ctx.ui.select(["pi-kit: this can destroy work — approve?", preview(event.input.command), "It can discard work or rewrite history. Approve once, or until the session ends (every destructive shape), or refuse."].join("\n"), ["Approve once", "Approve until the session ends", "Refuse"]);
+				if (choice === "Approve once" || choice === "Approve until the session ends") {
+					if (choice === "Approve until the session ends" && recordEntry({ granted: ["destructive"], source: "dialog" })) {
+						grants.add("destructive");
+						approvalFooter();
+					}
+					allowedVia.set(event.toolCallId, choice === "Approve until the session ends" ? "dialog (approved for this session)" : "dialog (approve once)");
 					return;
 				}
 				return { block: true, reason: `refused in dialog: ${event.input.command}` };
@@ -191,7 +198,7 @@ export default function (pi: ExtensionAPI) {
 		}
 		return {
 			block: true,
-			reason: `destructive-tier (${c.shape}) with no UI — headless runs never run destructive shapes. ${c.reason ?? ""}`.trim(),
+			reason: `destructive-tier (${c.shape}) with no UI and no session destructive grant covering it. ${c.reason ?? ""}`.trim(),
 		};
 	});
 
@@ -234,8 +241,8 @@ function preview(cmd: string): string {
 		label: "Record a session approval",
 		description:
 			"Record that the user approved the named gated actions for this session — call it when their TUI message grants them (your judgment: a directive or an approval of the session/gate/verbs; hedges, negations, and questions are not approvals). " +
-			"Coverable actions: commit, push (owner-checked), pr_create, pr_edit, comment, tag, release. `source` quotes the user's words — the audit trail in the session entry. " +
-			"Refuse-tier and destructive shapes are never coverable; grants last until quit.",
+			"Coverable actions: commit, push (owner-checked), pr_create, pr_edit, comment, tag, release, destructive (the coarse grant covering every destructive shape). `source` quotes the user's words — the audit trail in the session entry. " +
+			"Refuse-tier shapes are never coverable; destructive is session-grantable only, never standing-allowable; grants last until quit.",
 		parameters: Type.Object({
 			actions: Type.Array(stringEnum(ALL_ACTIONS as unknown as readonly string[], { description: "The actions the user approved" })),
 			source: Type.String({ description: "Short quote of the user's approving words (recorded in the session entry)" }),
@@ -257,7 +264,7 @@ function preview(cmd: string): string {
 				for (const a of actions) grants.add(a);
 			}
 			approvalFooter();
-			return ok(`recorded: ${actions.join(", ")} approved for this session ("${source}") — ask-tier coverage until quit; refuse/destructive shapes stay barred.`);
+			return ok(`recorded: ${actions.join(", ")} approved for this session ("${source}") — coverage until quit; refuse shapes stay barred.`);
 		},
 	});
 	pi.registerTool(approveTool);
@@ -314,7 +321,7 @@ function preview(cmd: string): string {
 		description:
 			"Commit the staged diff — hooks on, identity trailers injected, the review bind spent, the approval recorded. " +
 			"Does NOT run the fresh review: commit-gate still does, before this tool is called; its reviewer lane uses the fast read-only model at high thinking (judgment model at max only for design-grade artifacts, unsettleable reads, or blocking findings). " +
-			"Needs a review_bind row for the staged tree (TUI fallback: your user confirms they reviewed it because dispatch was impossible), then an approval: standing allow, session approval, or dialog. Stage with git add first.",
+			"Needs a review bind for the staged tree (a pre-approved commit — standing allow or session grant — waives a missing bind; the uncovered TUI fallback asks your user to confirm they reviewed the diff), then an approval: standing allow, session approval, or dialog. Stage with git add first.",
 		parameters: Type.Object({
 			subject: Type.String({ description: "One-line subject (repo convention when one exists)" }),
 			body: Type.Optional(Type.String({ description: "Body: root-cause narrative with numbers, not a diff restatement" })),
@@ -336,10 +343,15 @@ function preview(cmd: string): string {
 			if (stat.stdout.trim() === "") throw new Error("nothing staged — stage the diff with git add, then call git_commit (it commits the index, hooks on)");
 			const treeHash = await writeTree(exec, root);
 			const identity = identityFrom(cfg.agentName, ctx.model as any);
+			const repoIdent = await repoIdentity(exec, root);
+			const commitPreApproved = standingCovers(cfg, repoIdent, "git_commit") ? "standing allow" : grants.has("commit") ? "session approval" : undefined;
 			let bindSource: string;
 			const bind = findBind(root, "tree", treeHash, sid);
 			if (bind !== undefined) {
 				bindSource = `review_bind row (session ${bind.sid.slice(0, 8)})`;
+			} else if (commitPreApproved !== undefined) {
+				// A pre-approval speaks for the commit — the bind is waived (the row still spends when present)
+				bindSource = `waived (${commitPreApproved})`;
 			} else if (ctx.hasUI) {
 				setStatusPart("wait", "waiting on person: fresh-review bind missing");
 				const confirmed = await ctx.ui.confirm(
@@ -350,7 +362,7 @@ function preview(cmd: string): string {
 				if (confirmed) bindSource = "user confirm (human reviewed the diff)";
 				else {
 					throw new Error(
-						"refused: the staged tree is unbound. Run commit-gate's fresh review: dispatch ONE read-only reviewer lane with the review task in its brief and review_bind in its tools — the lane binds the tree it reviewed; then re-call git_commit. (A session approval never pays this bind.)",
+						"refused: the staged tree is unbound. Run commit-gate's fresh review: dispatch ONE read-only reviewer lane with the review task in its brief and review_bind in its tools — the lane binds the tree it reviewed; then re-call git_commit — or have the user approve commit, which pre-approves and waives the bind.",
 					);
 				}
 			} else {
@@ -361,7 +373,6 @@ function preview(cmd: string): string {
 
 			// Approval: standing → session → dialog.
 			let approvalSource: string;
-			const repoIdent = await repoIdentity(exec, root);
 			if (standingCovers(cfg, repoIdent, "git_commit")) {
 				approvalSource = "standing allow (pi-kit.json)";
 			} else if (grants.has("commit")) {
