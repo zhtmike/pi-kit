@@ -158,10 +158,10 @@ the model's baseUrl — unverifiable segments drop), caller trailers ride
 along. It does **not** run the fresh review — `commit-gate` still does, before
 this tool is called; its reviewer lane uses the fast read-only model at high
 thinking (the judgment model at maximum thinking only for design-grade
-artifacts, unsettleable reads, or blocking findings). Gates, in order: the checkout claim (like `git add`); a
-review bind for the staged tree (TUI fallback: the user confirms they
-reviewed it because dispatch was impossible — a session approval never pays
-the bind); then an approval (standing → session → dialog). On success it
+artifacts, unsettleable reads, or blocking findings). Gates, in order: the checkout claim; a
+review bind for the staged tree (TUI fallback: a plain-language confirm —
+the user personally reviewed the final diff just now; a session approval
+never pays the bind); then an approval (standing → session → dialog). On success it
 verifies the landing commit in the log and spends the bind row. If a hook
 mutated the index mid-commit, the commit lands but the result states the
 divergence — the row stays unspent, re-review and re-bind.

@@ -150,7 +150,7 @@ export default function (pi: ExtensionAPI) {
 				setStatusPart("wait", `waiting on person: ${c.shape}`);
 				const options = action !== undefined ? ["Approve once", "Approve for this session", "Refuse"] : ["Approve once", "Refuse"];
 				try {
-					const choice = await ctx.ui.select([`pi-kit gate: ${c.tier}`, preview(event.input.command), ...(c.reason ?? "").split("\n")].filter((l) => l !== "").join("\n"), options);
+					const choice = await ctx.ui.select(["pi-kit: approve this command?", preview(event.input.command), ...(c.reason ?? "").split("\n")].filter((l) => l !== "").join("\n"), options);
 					setStatusPart("wait", undefined);
 					if (choice === undefined || choice === "Refuse") {
 						return { block: true, reason: `refused in dialog: ${event.input.command}` };
@@ -179,7 +179,7 @@ export default function (pi: ExtensionAPI) {
 		if (ctx.hasUI) {
 			setStatusPart("wait", `waiting on person: ${c.shape} (destructive)`);
 			try {
-				const choice = await ctx.ui.select(["pi-kit gate: destructive", preview(event.input.command), "Destructive-tier: approve-once only — never covered by any approval."].join("\n"), ["Approve once", "Refuse"]);
+				const choice = await ctx.ui.select(["pi-kit: this can destroy work — approve?", preview(event.input.command), "It can discard work or rewrite history. Approve once or refuse — session approvals never cover it."].join("\n"), ["Approve once", "Refuse"]);
 				if (choice === "Approve once") {
 					allowedVia.set(event.toolCallId, "dialog (approve once)");
 					return;
@@ -326,7 +326,7 @@ function preview(cmd: string): string {
 			const startDir = ctx.cwd ?? process.cwd();
 			const root = await gitRootOf(exec, startDir);
 			if (root === null) throw new Error("not inside a git work tree");
-			// The claim floor: a commit writes history in this tree — ensure the claim like `git add`.
+			// The claim floor: a commit writes history in this tree — ensure the claim.
 			const claim = await ensureClaimAt(exec, startDir, sid);
 			if (!claim.ok) throw new Error(claim.reason);
 
@@ -343,11 +343,11 @@ function preview(cmd: string): string {
 			} else if (ctx.hasUI) {
 				setStatusPart("wait", "waiting on person: fresh-review bind missing");
 				const confirmed = await ctx.ui.confirm(
-					"git_commit: no review bind for the staged tree",
-					"A review_bind record for this exact staged tree is missing. Confirm only if you reviewed the diff yourself because dispatch was impossible.",
+					"Commit without a recorded review?",
+					"No independent review of this exact final diff is on record — usually because the diff changed after the reviewer ran.\n\nConfirm ONLY if you personally read the final diff just now and stand behind it.\n\nOtherwise choose Cancel: the agent dispatches a reviewer lane that records the review (review_bind), then retries this commit.",
 				);
 				setStatusPart("wait", undefined);
-				if (confirmed) bindSource = "user confirm (dispatch impossible)";
+				if (confirmed) bindSource = "user confirm (human reviewed the diff)";
 				else {
 					throw new Error(
 						"refused: the staged tree is unbound. Run commit-gate's fresh review: dispatch ONE read-only reviewer lane with the review task in its brief and review_bind in its tools — the lane binds the tree it reviewed; then re-call git_commit. (A session approval never pays this bind.)",
@@ -427,7 +427,7 @@ function preview(cmd: string): string {
 				[
 					`commit ${sha} (verified in the log)`,
 					`approval: ${approvalSource}`,
-					`bind: ${bindSource} — row spent`,
+					`bind: ${bindSource}${bind !== undefined ? " — row spent" : ""}`,
 					`hooks: ${hookOutput === "" ? "(no output)" : hookOutput}`,
 					`diff stat:\n${stat.stdout.trim()}`,
 					`message:\n${message}`,

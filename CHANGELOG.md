@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.2 — 2026-11-21
+
+Every human-facing prompt speaks plainly now. The missing-bind fallback
+says what is on record (no independent review of this exact final diff —
+usually because the diff changed after the reviewer ran), what confirming
+means (you personally read the final diff just now), and what Cancel does
+(the agent dispatches a reviewer lane, then retries). The ask dialog asks
+"approve this command?" instead of naming a tier; the destructive dialog
+leads with "this can destroy work" and says plainly that session approvals
+never cover it. A stale "like `git add`" claim-floor comparison died in the
+code comment and the docs gate list.
+
 ## 0.2.1 — 2026-11-21
 
 Session-scoped approval now covers every ask shape: the `approve` vocabulary
