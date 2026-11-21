@@ -18,8 +18,10 @@ export interface CommentInput {
 
 export interface ReplyInput {
 	verdict: "addressed" | "skipped";
-	/** The finding, request, or comment replied to, quoted or restated. */
-	answers: string;
+	/** The finding, request, or comment replied to — rendered at the top as a > blockquote. */
+	quote: string;
+	/** The reply's own answer, below the verdict opener. */
+	answers?: string;
 	/** The commit that addressed it — required when verdict is `addressed`. */
 	commit?: string;
 	verification?: string;
@@ -41,11 +43,14 @@ export function replyText(r: ReplyInput, id: Identity): string {
 	} else if (r.reason === undefined || r.reason === "") {
 		throw new Error("a `skipped` reply names its reasoning — pass `reason`");
 	}
-	const opener = r.verdict === "addressed" ? `Addressed in \`${r.commit}\`:` : "Skipped, with reasoning:";
-	const lines = [opener];
-	// The answered finding rides as a markdown blockquote — GitHub-native quoting
-	// that survives collapsed threads and notifications.
-	if (r.answers.trim() !== "") lines.push(...r.answers.trim().split("\n").map((l) => `> ${l}`.trimEnd()));
+	if (r.quote === undefined || r.quote.trim() === "") {
+		throw new Error("a reply opens with what it answers — pass `quote` (the finding, request, or comment, rendered as a > blockquote)");
+	}
+	// The quoted original opens the reply (GitHub-native > that survives collapsed
+	// threads); the verdict and the answers land below it.
+	const lines = r.quote.trim().split("\n").map((l) => `> ${l}`.trimEnd());
+	lines.push("", r.verdict === "addressed" ? `Addressed in \`${r.commit}\`:` : "Skipped, with reasoning:");
+	if (r.answers !== undefined && r.answers.trim() !== "") lines.push(`- Answers: ${r.answers.trim()}`);
 	if (r.verification !== undefined && r.verification.trim() !== "") lines.push(`- Verification: ${r.verification.trim()}`);
 	if (r.verdict === "skipped" && r.reason !== undefined) lines.push(`- Reason: ${r.reason.trim()}`);
 	const marker = replyMarker(id);

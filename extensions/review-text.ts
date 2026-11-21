@@ -121,7 +121,8 @@ export default function (pi: ExtensionAPI) {
 			ask: Type.Optional(Type.String({ description: "kind comment: one imperative ask" })),
 			fact: Type.Optional(Type.String({ description: "kind comment: at most one fact (a sibling path rides here)" })),
 			verdict: Type.Optional(stringEnum(["addressed", "skipped"] as const, { description: "kind reply: the verdict token" })),
-			answers: Type.Optional(Type.String({ description: "kind reply: the finding, request, or comment replied to — the tool renders it as a > blockquote" })),
+			quote: Type.Optional(Type.String({ description: "kind reply: the finding, request, or comment replied to — rendered at the top as a > blockquote" })),
+			answers: Type.Optional(Type.String({ description: "kind reply: the reply's own answer, below the verdict opener" })),
 			commit: Type.Optional(Type.String({ description: "kind reply: the commit that addressed it (required for 'addressed')" })),
 			verification: Type.Optional(Type.String({ description: "kind reply: the verification behind the answer" })),
 			reason: Type.Optional(Type.String({ description: "kind reply: why it was skipped (required for 'skipped')" })),
@@ -142,7 +143,7 @@ export default function (pi: ExtensionAPI) {
 					throw new Error("kind 'reply' requires verdict and answers");
 				}
 				text = replyText(
-					{ verdict: params.verdict, answers: params.answers, commit: params.commit, verification: params.verification, reason: params.reason },
+					{ verdict: params.verdict, quote: params.quote ?? "", answers: params.answers, commit: params.commit, verification: params.verification, reason: params.reason },
 					identity,
 				);
 			} else {

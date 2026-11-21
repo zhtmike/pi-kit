@@ -27,25 +27,26 @@ t("comment: a non-positive line refuses", () => {
 });
 
 // --- reply --------------------------------------------------------------------------------
-t("reply addressed opens 'Addressed in <commit>:' and carries the marker", () => {
-	const text = replyText({ verdict: "addressed", answers: "the null check", commit: "abc1234", verification: "npm test green" }, id);
-	assert.match(text, /^Addressed in `abc1234`:$/m);
-	assert.match(text, /^> the null check$/m);
+t("reply opens with the > quote, answers below the verdict opener, marker small", () => {
+	const text = replyText({ verdict: "addressed", quote: "the null check on parseRecord", answers: "the check moved to the caller", commit: "abc1234", verification: "npm test green" }, id);
+	assert.match(text, /^> the null check on parseRecord$\n\nAddressed in `abc1234`:/m);
+	assert.match(text, /- Answers: the check moved to the caller/);
 	assert.match(text, /- Verification: npm test green/);
 	assert.match(text, /<sub>AI-assisted reply — pi \(glm-5\.3\)<\/sub>$/m);
 });
 t("reply skipped opens 'Skipped, with reasoning:' and requires a reason", () => {
-	const text = replyText({ verdict: "skipped", answers: "naming nit", reason: "either shape is defensible" }, id);
+	const text = replyText({ verdict: "skipped", quote: "naming nit", reason: "either shape is defensible" }, id);
 	assert.match(text, /^Skipped, with reasoning:$/m);
 	assert.match(text, /- Reason: either shape is defensible/);
-	assert.throws(() => replyText({ verdict: "skipped", answers: "x" }, id), /reason/);
+	assert.throws(() => replyText({ verdict: "skipped", quote: "x" }, id), /reason/);
+	assert.throws(() => replyText({ verdict: "addressed", commit: "abc" } as any, id), /quote/);
 });
 t("reply addressed without a commit refuses", () => {
-	assert.throws(() => replyText({ verdict: "addressed", answers: "x" }, id), /commit/);
+	assert.throws(() => replyText({ verdict: "addressed", quote: "x" }, id), /commit/);
 });
 t("reply: a marked text never gains a second marker", () => {
-	const once = replyText({ verdict: "addressed", answers: "x", commit: "abc" }, id);
-	const twice = replyText({ verdict: "addressed", answers: once, commit: "abc" }, id);
+	const once = replyText({ verdict: "addressed", quote: "x", commit: "abc" }, id);
+	const twice = replyText({ verdict: "addressed", quote: once, commit: "abc" }, id);
 	assert.equal(twice.split("AI-assisted reply").length - 1, 1);
 });
 t("marker drops the model parenthetical when unverifiable; small-print wrap always", () => {
