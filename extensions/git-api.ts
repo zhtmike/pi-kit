@@ -52,9 +52,6 @@ export default function (pi: ExtensionAPI) {
 	/** Lanes carry the dispatch child marker; nothing else gets recorded-from. */
 	const childMarker = (): boolean => process.env.PI_MINIMAL_DISPATCH_CHILD === "1";
 
-	const humanChannel = (mode: string, source: string | undefined): boolean =>
-		mode === "tui" && source === "interactive" && !childMarker();
-
 	function recordEntry(data: { granted?: ApprovalAction[]; cleared?: boolean; source?: string }): boolean {
 		try {
 			pi.appendEntry(APPROVAL_ENTRY, data);
@@ -237,7 +234,7 @@ function preview(cmd: string): string {
 		label: "Record a session approval",
 		description:
 			"Record that the user approved the named gated actions for this session — call it when their TUI message grants them (your judgment: a directive or an approval of the session/gate/verbs; hedges, negations, and questions are not approvals). " +
-			"Coverable actions: commit, push (owner-checked), pr_create, pr_edit. `source` quotes the user's words — the audit trail in the session entry. " +
+			"Coverable actions: commit, push (owner-checked), pr_create, pr_edit, comment, tag, release. `source` quotes the user's words — the audit trail in the session entry. " +
 			"Refuse-tier and destructive shapes are never coverable; grants last until quit.",
 		parameters: Type.Object({
 			actions: Type.Array(stringEnum(ALL_ACTIONS as unknown as readonly string[], { description: "The actions the user approved" })),
@@ -460,12 +457,14 @@ function standingShape(c: Classification): AskShape | undefined {
 		"gh pr create": "gh pr create",
 		"gh pr edit": "gh pr edit",
 		"gh comment": "gh comment",
+		"git tag": "git tag",
+		"gh release": "gh release",
 	};
 	return map[c.shape];
 }
 
 /** The session-approval action a shape maps to, when it is coverable. */
 function approvalActionOf(shape: string): ApprovalAction | undefined {
-	const map: Record<string, ApprovalAction> = { "git push": "push", "gh pr create": "pr_create", "gh pr edit": "pr_edit" };
+	const map: Record<string, ApprovalAction> = { "git push": "push", "gh pr create": "pr_create", "gh pr edit": "pr_edit", "gh comment": "comment", "git tag": "tag", "gh release": "release" };
 	return map[shape];
 }

@@ -28,7 +28,8 @@ the process aborts (TUI shows the block and shuts down; print/JSON exit 1).
 ```
 
 Standing shapes: `git_commit`, `git push`, `gh pr create`, `gh pr edit`,
-`gh comment`. Destructive and refuse shapes are rejected at load.
+`gh comment`, `git tag`, `gh release`. Destructive and refuse shapes are
+rejected at load.
 The `git push` owner check (`ownerLogins`) still applies under any allow.
 
 ## The checkout claim (extension 1)
@@ -122,7 +123,7 @@ user's words. Hedges, negations, and questions are not approvals; the agent
 decides, and the record is the audit trail.
 
 **Tool `approve`** — params: `actions` (from `commit`, `push`, `pr_create`,
-`pr_edit`), `source` (the quoted approving words). Records only in the
+`pr_edit`, `comment`, `tag`, `release`), `source` (the quoted approving words). Records only in the
 owner's TUI session (mode `tui`, no child markers — lanes and headless runs
 never self-approve; their channel is `standingAllows`). Grants last until
 quit, survive compaction (session entries), replay in file order, and show

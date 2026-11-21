@@ -12,8 +12,8 @@ const t = (name: string, fn: () => void) => {
 	}
 };
 
-t("the coverable vocabulary is the four ask-tier actions", () => {
-	assert.deepEqual([...ALL_ACTIONS], ["commit", "push", "pr_create", "pr_edit"]);
+t("the coverable vocabulary is the seven ask-tier actions", () => {
+	assert.deepEqual([...ALL_ACTIONS], ["commit", "push", "pr_create", "pr_edit", "comment", "tag", "release"]);
 	assert.equal(isApprovalAction("commit"), true);
 	assert.equal(isApprovalAction("merge"), false);
 });

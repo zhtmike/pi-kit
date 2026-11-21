@@ -7,9 +7,9 @@
  * replay folds file order with a clear terminating what precedes it.
  */
 
-export type ApprovalAction = "commit" | "push" | "pr_create" | "pr_edit";
-/** Every coverable action — the approve tool's vocabulary. */
-export const ALL_ACTIONS: readonly ApprovalAction[] = ["commit", "push", "pr_create", "pr_edit"];
+export type ApprovalAction = "commit" | "push" | "pr_create" | "pr_edit" | "comment" | "tag" | "release";
+/** Every coverable action — the approve tool's vocabulary; one per ask-tier shape. */
+export const ALL_ACTIONS: readonly ApprovalAction[] = ["commit", "push", "pr_create", "pr_edit", "comment", "tag", "release"];
 
 export function isApprovalAction(v: string): v is ApprovalAction {
 	return (ALL_ACTIONS as readonly string[]).includes(v);

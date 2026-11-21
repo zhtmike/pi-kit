@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 — 2026-11-21
+
+Session-scoped approval now covers every ask shape: the `approve` vocabulary
+gains `comment`, `tag`, and `release`, so `gh comment`, `git tag` write forms,
+and `gh release create/upload` dialogs offer "Approve for this session" (and
+`standingAllows` gains the `git tag` and `gh release` shape keys). The dead
+`humanChannel` helper is gone (the approve tool enforces its channel inline).
+
 ## 0.2.0 — 2026-11-21
 
 Both bash-floor classifiers inverted to blacklists (pi-spirit): every

@@ -104,7 +104,7 @@ t("standingCovers: exact repo, wildcard, and miss", () => {
 });
 
 t("ask shapes are the only allowable set", () => {
-	assert.equal(ASK_SHAPES.length, 5);
+	assert.deepEqual([...ASK_SHAPES], ["git_commit", "git push", "gh pr create", "gh pr edit", "gh comment", "git tag", "gh release"]);
 });
 
 process.exit(failures === 0 ? 0 : 1);
