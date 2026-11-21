@@ -94,17 +94,17 @@ t("destructive/refuse shapes are rejected at load with the valid list", () => {
 });
 
 t("standingCovers: exact repo, wildcard, and miss", () => {
-	const cfg = { ...DEFAULT_CONFIG, standingAllows: [{ repo: "zhtmike/skills", shapes: ["git_commit" as const] }, { repo: "*", shapes: ["gh api" as const] }] };
+	const cfg = { ...DEFAULT_CONFIG, standingAllows: [{ repo: "zhtmike/skills", shapes: ["git_commit" as const] }, { repo: "*", shapes: ["gh comment" as const] }] };
 	assert.equal(standingCovers(cfg, "zhtmike/skills", "git_commit"), true);
 	assert.equal(standingCovers(cfg, "ZhtMike/Skills", "git_commit"), true); // case-insensitive
 	assert.equal(standingCovers(cfg, "zhtmike/other", "git_commit"), false);
-	assert.equal(standingCovers(cfg, "zhtmike/other", "gh api"), true); // *
-	assert.equal(standingCovers(cfg, undefined, "gh api"), true); // * matches even unresolvable repos
+	assert.equal(standingCovers(cfg, "zhtmike/other", "gh comment"), true); // *
+	assert.equal(standingCovers(cfg, undefined, "gh comment"), true); // * matches even unresolvable repos
 	assert.equal(standingCovers(cfg, undefined, "git_commit"), false);
 });
 
 t("ask shapes are the only allowable set", () => {
-	assert.equal(ASK_SHAPES.length, 6);
+	assert.equal(ASK_SHAPES.length, 5);
 });
 
 process.exit(failures === 0 ? 0 : 1);

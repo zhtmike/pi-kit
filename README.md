@@ -22,10 +22,12 @@ pi install git:github.com/zhtmike/pi-kit
 ## The floors
 
 - **Claim floor** — tracked `edit`/`write` outside `.pi/**` (resolved through
-  symlinks) and ask/destructive bash shapes plus `git add` meet the claim before anything else;
-  a live foreign claim blocks, `checkout worktree` is the escape.
-- **Git/gh tier floor** — bash git/gh shapes classify allow / ask /
-  destructive / refuse (per-segment, most-restrictive-wins); ask-tier needs
+  symlinks) and ask/destructive bash shapes meet the claim before anything
+  else; a live foreign claim blocks, `checkout worktree` is the escape.
+- **Git/gh tier floor** — both gate by blacklist: agent-typed git/gh
+  defaults to allow; the high-risk rows only (`git commit` bash forms → the
+  tool; `git push`, `git tag` writes, gh post surfaces and release
+  publishing → ask; the destructive footguns) gate. Ask-tier needs
   coverage (standing allow, session approval, dialog), destructive dialogs
   approve-once only, refuse shapes block naming the fix. `pkill -f` /
   `pgrep -f` self-match blocks with the kill-by-PID remedy.

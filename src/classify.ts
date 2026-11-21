@@ -1,9 +1,11 @@
 /**
- * Pure command classification for the git/gh floors — the tier table.
- * Token/glob grade, not a shell AST: unknown shapes ask (never allow), a
- * redirection or a script write is not seen, and compound commands evaluate
- * per segment, most-restrictive-wins. No state, no fs, no processes: the
- * floors resolve owners, claim targets, and binds at use time.
+ * Pure command classification for the git/gh floors — both gate by blacklist:
+ * agent-typed git/gh defaults to allow, and a compact set of high-risk rows
+ * (refuse / ask / destructive, in docs/api.md) gates. Token/glob grade, not a
+ * shell AST: a redirection, a script write, or an exotic plumbing writer is
+ * not seen — those tunnels are named in the docs, not parsed away. No state,
+ * no fs, no processes: the floors resolve owners, claim targets, and binds
+ * at use time.
  */
 
 export type Tier = "allow" | "ask" | "destructive" | "refuse" | "selfmatch";
@@ -35,7 +37,10 @@ export function shellWords(s: string): string[] {
 	let has = false;
 	for (let i = 0; i < s.length; i++) {
 		const c = s[i];
-		if (quote !== null) {
+		if (quote === '"' && c === "\\" && (s[i + 1] === '"' || s[i + 1] === "\\")) {
+			cur += s[i + 1]; // an escaped quote/backslash inside double quotes is literal — the string does not end
+			i++;
+		} else if (quote !== null) {
 			if (c === quote) quote = null;
 			else cur += c;
 		} else if (c === '"' || c === "'") {
@@ -51,7 +56,14 @@ export function shellWords(s: string): string[] {
 	return words;
 }
 
-/** Split a command line on top-level `&&` `||` `;` `|` and newlines, quote-aware. */
+/** Shell receivers whose heredoc body is a script to classify, not data. */
+const HEREDOC_SHELLS = /\b(bash|sh|zsh|dash|ksh)(?![A-Za-z0-9_])/;
+
+/**
+ * Split a command line on top-level `&&` `||` `;` `|` (quote-aware). A
+ * heredoc body is stdin data — swallowed whole unless the receiver is a
+ * shell, whose body is a script and keeps splitting.
+ */
 function splitSegments(cmd: string): string[] {
 	const segs: string[] = [];
 	let cur = "";
@@ -60,27 +72,76 @@ function splitSegments(cmd: string): string[] {
 		if (cur.trim() !== "") segs.push(cur.trim());
 		cur = "";
 	};
-	for (let i = 0; i < cmd.length; i++) {
+	let i = 0;
+	while (i < cmd.length) {
 		const c = cmd[i];
+		if (quote === '"' && c === "\\" && (cmd[i + 1] === '"' || cmd[i + 1] === "\\")) {
+			cur += cmd[i + 1]; // escaped quote/backslash inside double quotes — the string does not end
+			i += 2;
+			continue;
+		}
 		if (quote !== null) {
 			cur += c;
 			if (c === quote) quote = null;
+			i++;
 			continue;
 		}
 		if (c === '"' || c === "'") {
 			quote = c;
 			cur += c;
+			i++;
 			continue;
+		}
+		if (c === "<" && cmd[i + 1] === "<" && cmd[i + 2] !== "<") {
+			let j = i + 2;
+			if (cmd[j] === "-") j++;
+			if (cmd[j] === "'" || cmd[j] === '"') j++;
+			let w = "";
+			while (j < cmd.length && /[A-Za-z0-9_]/.test(cmd[j])) w += cmd[j++];
+			if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(w)) {
+				const nl = cmd.indexOf("\n", j);
+				const bodyStart = nl === -1 ? cmd.length : nl + 1;
+				let p = bodyStart;
+				let termStart = cmd.length;
+				let termEnd = cmd.length;
+				while (p < cmd.length) {
+					const n2 = cmd.indexOf("\n", p);
+					const lineEnd = n2 === -1 ? cmd.length : n2;
+					if (cmd.slice(p, lineEnd).trim() === w) {
+						termStart = p;
+						termEnd = lineEnd;
+						break;
+					}
+					if (n2 === -1) break;
+					p = n2 + 1;
+				}
+				cur += cmd.slice(i, j);
+				if (nl !== -1 && j < nl) segs.push(...splitSegments(cmd.slice(j, nl))); // header remainder after the tag is command text
+				if (HEREDOC_SHELLS.test(`${cur} `)) {
+					// the body is a shell script — it keeps splitting like any command text
+					flush();
+					i = bodyStart;
+				} else {
+					// the body is data — one opaque lump inside this segment
+					cur += cmd.slice(bodyStart, termStart);
+					i = termEnd;
+				}
+				continue;
+			}
 		}
 		if (c === "&" && cmd[i + 1] === "&") {
 			flush();
-			i++;
+			i += 2;
 		} else if (c === "|" && cmd[i + 1] === "|") {
 			flush();
-			i++;
+			i += 2;
 		} else if (c === "|" || c === ";") {
 			flush();
-		} else cur += c;
+			i++;
+		} else {
+			cur += c;
+			i++;
+		}
 	}
 	flush();
 	return segs;
@@ -88,59 +149,50 @@ function splitSegments(cmd: string): string[] {
 
 // --- git ---------------------------------------------------------------------------------
 
-const GIT_ALLOW = new Set(["status", "diff", "log", "show", "ls-files", "ls-tree", "rev-parse", "describe", "blame", "grep", "fetch", "add"]);
-const GIT_DESTRUCTIVE = new Set(["rebase", "clean"]);
+/** Non-flag arguments of a segment. */
+function bare(args: string[]): string[] {
+	return args.filter((a) => !a.startsWith("-"));
+}
 
 /** A `+` refspec or an empty-source deletion refspec (`:branch`). */
 function isForceRefspec(words: string[]): boolean {
 	return words.some((w) => w === "+" || w.startsWith("+") || /^:[^^]/.test(w) || /:[^/]+\.\.\./.test(w));
 }
 
+/** Valueless git global flags — shift bare; every other unknown global asks (its value or its subcommand must not masquerade). */
+const GIT_BOOL_GLOBALS = new Set(["-p", "--paginate", "--no-pager", "-P", "--bare", "--no-replace-objects", "--literal-pathspecs", "--no-literal-pathspecs", "--no-optional-locks", "--no-renames"]);
+
 function classifyGit(words: string[]): Classification {
 	const rest = [...words];
 	let targetDir: string | undefined;
 	let gitDir: string | undefined;
-	let ctxFlag = false;
-	// global flags before the subcommand: --no-pager/-P stripped; -C/--git-dir claim-target;
-	// -c/--work-tree (and any -C) make the tier ask — they relocate or reconfigure the run.
-	while (rest.length > 0 && rest[0].startsWith("-")) {
+	// Global flags before the subcommand: -C/--git-dir record the claim target; an
+	// unknown global asks — value-taking and valueless are indistinguishable at token grade.
+	while (rest.length > 0 && rest[0].startsWith("-") && rest[0] !== "--") {
 		const w = rest[0];
-		if (w === "--no-pager" || w === "-P") rest.shift();
+		if (GIT_BOOL_GLOBALS.has(w)) rest.shift();
 		else if (w === "-C") {
 			targetDir = rest[1];
-			ctxFlag = true;
 			rest.splice(0, 2);
-		} else if (w.startsWith("-C")) {
+		} else if (w.startsWith("-C") && w.length > 2) {
 			targetDir = w.slice(2);
-			ctxFlag = true;
 			rest.shift();
 		} else if (w === "--git-dir") {
 			gitDir = rest[1];
-			ctxFlag = true;
 			rest.splice(0, 2);
 		} else if (w.startsWith("--git-dir=")) {
 			gitDir = w.slice("--git-dir=".length);
-			ctxFlag = true;
 			rest.shift();
-		} else if (w === "--work-tree") {
-			ctxFlag = true;
-			rest.splice(0, 2);
-		} else if (w.startsWith("--work-tree=")) {
-			ctxFlag = true;
-			rest.shift();
-		} else if (w === "-c") {
-			ctxFlag = true;
-			rest.splice(0, 2);
-		} else if (w.startsWith("-c")) {
-			ctxFlag = true;
-			rest.shift();
-		} else if (w === "--") break;
-		else rest.shift(); // any other global flag: strip and continue
+		} else if (/^--[a-zA-Z-]+=/.test(w)) rest.shift(); // self-contained --flag=value
+		else if (w === "-c" || w.startsWith("-c")) rest.splice(0, w === "-c" ? 2 : 1);
+		else return ask("git", `unknown git global flag '${w}' — run the command with plain flags, or from inside the tree`, gitDir ?? targetDir);
 	}
+	if (rest[0] === "--") rest.shift();
 	const target = gitDir ?? targetDir;
 	const sub = rest[0];
-	if (sub === undefined) return ask("git", "unknown git form", target);
+	if (sub === undefined || !/^[a-z][a-z0-9-]*$/.test(sub)) return ask("git", "unknown git form — not a plausible subcommand", target);
 	const args = rest.slice(1);
+	const pos = bare(args);
 
 	if (sub === "commit") {
 		if (args.includes("--amend") || args.includes("--no-verify") || args.includes("-n")) {
@@ -149,47 +201,52 @@ function classifyGit(words: string[]): Classification {
 		return refuse(`git ${sub}`, "git commit is refused in bash — use the git_commit tool (hooks on, identity trailers, review bind). --amend/--no-verify are destructive-tier and need the dialog.", target);
 	}
 	if (sub === "push") {
-		const c0 = { tier: "ask", shape: "git push", targetDir: target, pushArgs: args } as Classification;
 		const flags = args.filter((a) => a.startsWith("-"));
 		const force = flags.some((f) => f === "-f" || f === "--force" || f === "--force-with-lease" || f === "--force-if-includes" || f.startsWith("--force")) || args.includes("--delete") || args.includes("-d") || isForceRefspec(args);
 		if (force) {
 			return destructive("git push", target, "force/delete push forms are destructive-tier — approve-once dialog only, never covered by any approval.");
 		}
-		return c0;
+		return { tier: "ask", shape: "git push", targetDir: target, pushArgs: args };
+	}
+	if (sub === "tag") {
+		const listish = pos.length === 0 || args.some((a) => a === "-l" || a === "--list" || /^-n\d*$/.test(a));
+		if (listish) return allow("git tag", target);
+		return ask("git tag", "git tag <name> creates/moves/deletes a release marker — approve it deliberately", target);
 	}
 	if (sub === "reset") {
 		if (args.includes("--hard")) return destructive("git reset", target);
-		return ask("git reset", "git reset (unlisted form)", target);
+		return allow("git reset", target);
 	}
-	if (sub === "checkout" || sub === "restore") {
-		// `checkout <branch>` switches branches (ask); `checkout -- <path>` / `checkout .` / `restore` discard work — destructive.
-		if (sub === "restore" || args.includes("--") || args[0] === ".") return destructive(`git ${sub}`, target);
-		return ask(`git ${sub}`, `git ${sub} (unlisted form)`, target);
+	if (sub === "checkout") {
+		// `--`/`.`/`./`/`:/` path forms and the force/create-or-reset spellings discard work — destructive.
+		// A bare word (`checkout main`, `checkout src/a.ts`) is token-grade ambiguous and rides allow (documented residue).
+		if (args.includes("--") || [".", "./", ":/"].includes(pos[0] ?? "") || args.some((a) => a === "-f" || a === "--force" || a === "-B")) return destructive("git checkout", target);
+		return allow("git checkout", target);
+	}
+	if (sub === "restore") {
+		const staged = args.includes("--staged") || args.includes("-S");
+		const worktree = args.includes("--worktree") || args.includes("-W") || /^-[a-zA-Z]*W[a-zA-Z]*$/.test(args.find((a) => /^-[a-zA-Z]*W/.test(a)) ?? "");
+		if (staged && !worktree) return allow("git restore", target);
+		return destructive("git restore", target);
 	}
 	if (sub === "stash") {
-		if (args[0] === "drop" || args[0] === "clear") return destructive("git stash", target);
-		return ask("git stash", "git stash (unlisted form)", target);
+		if (pos[0] === "drop" || pos[0] === "clear") return destructive("git stash", target);
+		return allow("git stash", target);
 	}
 	if (sub === "branch") {
 		if (args.includes("-D")) return destructive("git branch", target);
-		return ask("git branch", "git branch (unlisted form)", target);
+		return allow("git branch", target);
 	}
 	if (sub === "reflog") {
-		if (args.includes("expire") || args.includes("delete")) return destructive("git reflog", target);
+		if (pos.includes("expire") || pos.includes("delete")) return destructive("git reflog", target);
 		return allow("git reflog", target);
 	}
-	if (GIT_DESTRUCTIVE.has(sub)) return destructive(`git ${sub}`, target);
-	if (GIT_ALLOW.has(sub)) {
-		const shape = sub === "add" ? "git add" : `git ${sub}`;
-		if (ctxFlag) return ask(shape, `${shape} with -C/--git-dir/-c/--work-tree`, target);
-		return allow(shape, target);
-	}
-	return ask(`git ${sub}`, `git ${sub} (unlisted subcommand)`, target);
+	if (sub === "rebase" || sub === "clean") return destructive(`git ${sub}`, target);
+	return allow(`git ${sub}`, target);
 }
 
 // --- gh ----------------------------------------------------------------------------------
 
-const GH_ALLOW_SUBS = new Set(["view", "diff", "list"]);
 const GH_STATE_WORDS = new Set(["merge", "close", "reopen", "delete", "ready", "archive", "lock", "unlock"]);
 
 function ghBodyArgs(args: string[]): { inline?: boolean; bodyFile?: string; stdin?: boolean } {
@@ -221,12 +278,15 @@ function classifyGh(words: string[]): Classification {
 	const rest = [...words];
 	while (rest.length > 0 && rest[0].startsWith("-") && rest[0] !== "--") {
 		const w = rest.shift() as string;
-		// value-taking global flags: consume their argument so it is not mistaken for the subcommand
-		if ((w === "-R" || w === "--repo") && rest.length > 0 && !rest[0].startsWith("-")) rest.shift();
+		// Value-taking global flags consume their argument; any other global is
+		// unknown — ask (its value or subcommand must not masquerade past the gate).
+		if (w === "-R" || w === "--repo" || w === "--hostname") {
+			if (rest.length > 0 && !rest[0].startsWith("-")) rest.shift();
+		} else return ask("gh", `unknown gh global flag '${w}' — run the command plainly`);
 	}
 	if (rest[0] === "--") rest.shift();
 	const sub = rest[0];
-	if (sub === undefined) return ask("gh", "unknown gh form");
+	if (sub === undefined || !/^[a-z][a-z0-9-]*$/.test(sub)) return ask("gh", "unknown gh form — not a plausible subcommand");
 
 	if (sub === "api") {
 		const args = rest.slice(1);
@@ -272,7 +332,7 @@ function classifyGh(words: string[]): Classification {
 		if (prose.length > 0) {
 			return refuse("gh api", `gh api POST carrying postable prose via -f ${prose[0]}= — refuse-tier. Compose the text with review_text, then post it via 'gh pr comment <n> --body-file <file>' bound through review_bind (kind post).`);
 		}
-		return ask("gh api");
+		return allow("gh api");
 	}
 
 	if (sub === "pr" || sub === "issue") {
@@ -293,7 +353,7 @@ function classifyGh(words: string[]): Classification {
 				if (b.bodyFile) return { tier: "ask", shape: "gh comment", bodyFile: b.bodyFile };
 				return { tier: "ask", shape: "gh comment", noBody: true };
 			}
-			return ask(`gh pr review`, "gh pr review (unlisted form)");
+			return allow("gh pr review");
 		}
 		if (verb === "comment") {
 			const b = ghBodyArgs(args);
@@ -302,37 +362,30 @@ function classifyGh(words: string[]): Classification {
 			if (b.bodyFile) return { tier: "ask", shape: "gh comment", bodyFile: b.bodyFile };
 			return { tier: "ask", shape: "gh comment", noBody: true };
 		}
-		if (verb === "create") {
-			if (sub === "pr") {
-				const b = ghBodyArgs(args);
-				if (b.inline) return refuse("gh pr create", ghPostRefusal("gh pr create"));
-				if (b.stdin) return refuse("gh pr create", ghPostRefusal("gh pr create"));
-				if (b.bodyFile) return { tier: "ask", shape: "gh pr create", bodyFile: b.bodyFile };
-				return { tier: "ask", shape: "gh pr create", noBody: true };
-			}
-			return ask("gh issue create", "gh issue create (unlisted)");
-		}
-		if (verb === "edit") {
+		if (verb === "create" || verb === "edit") {
 			const b = ghBodyArgs(args);
-			if (b.inline) return refuse(`gh ${sub} edit`, ghPostRefusal(`gh ${sub} edit`));
-			if (b.stdin) return refuse(`gh ${sub} edit`, ghPostRefusal(`gh ${sub} edit`));
-			if (b.bodyFile) return { tier: "ask", shape: sub === "pr" ? "gh pr edit" : "gh comment", bodyFile: b.bodyFile };
-			return { tier: "ask", shape: sub === "pr" ? "gh pr edit" : "gh comment", noBody: true };
+			if (b.inline) return refuse(`gh ${sub} ${verb}`, ghPostRefusal(`gh ${sub} ${verb}`));
+			if (b.stdin) return refuse(`gh ${sub} ${verb}`, ghPostRefusal(`gh ${sub} ${verb}`));
+			if (b.bodyFile) return { tier: "ask", shape: sub === "pr" && verb === "create" ? "gh pr create" : sub === "pr" ? "gh pr edit" : "gh comment", bodyFile: b.bodyFile };
+			return { tier: "ask", shape: sub === "pr" && verb === "create" ? "gh pr create" : sub === "pr" ? "gh pr edit" : "gh comment", noBody: true };
 		}
-		if (GH_ALLOW_SUBS.has(verb)) return allow(`gh ${sub} ${verb}`);
-		return ask(`gh ${sub} ${verb}`, `gh ${sub} ${verb} (unlisted form)`);
+		return allow(`gh ${sub} ${verb}`);
 	}
 
-	if (sub === "search") return allow("gh search");
-	if (sub === "run" || sub === "repo" || sub === "label" || sub === "release" || sub === "workflow") {
+	if (sub === "release") {
 		const verb = rest[1];
-		if (verb === "view" || verb === "list" || verb === "download") return allow(`gh ${sub} ${verb}`);
-		if (sub === "label" || sub === "release" || sub === "workflow") return ask(`gh ${sub}`, `gh ${sub} (unlisted form)`);
-		if (verb === undefined) return ask(`gh ${sub}`, `gh ${sub} (no verb)`);
-		return ask(`gh ${sub} ${verb}`, `gh ${sub} ${verb} (unlisted form)`);
+		if (verb === "create" || verb === "upload") {
+			return ask("gh release", "gh release create/upload publishes a release — the git tag twin; approve deliberately");
+		}
+		if (verb !== undefined && GH_STATE_WORDS.has(verb)) return refuse(`gh release ${verb}`, `gh release ${verb} changes state — refuse-tier for agents; ask the user to do it.`);
+		return allow("gh release");
 	}
-	if (sub === "auth" || sub === "config" || sub === "extension" || sub === "completion") return ask(`gh ${sub}`, `gh ${sub} (unlisted form)`);
-	return ask(`gh ${sub}`, `gh ${sub} (unlisted subcommand)`);
+	if (sub === "search" || sub === "run" || sub === "repo" || sub === "label" || sub === "workflow" || sub === "auth" || sub === "config" || sub === "extension" || sub === "completion") {
+		const verb = rest[1];
+		if (verb !== undefined && GH_STATE_WORDS.has(verb)) return refuse(`gh ${sub} ${verb}`, `gh ${sub} ${verb} changes state — refuse-tier for agents; ask the user to do it.`);
+		return allow(`gh ${sub}`);
+	}
+	return allow(`gh ${sub}`);
 }
 
 // --- pkill/pgrep self-match --------------------------------------------------------------
@@ -360,21 +413,17 @@ function classifyPkill(words: string[], rawSegment: string): Classification {
 
 // --- segment -----------------------------------------------------------------------------
 
-const RELOCATING_ENV = /^GIT_(DIR|WORK_TREE|INDEX_FILE)=/i;
+const GIT_DIR_ENV = /^GIT_DIR=/i;
 
 export function classifySegment(segment: string): Classification {
 	let words = shellWords(segment);
-	// Relocating GIT_* assignments get the same at-least-ask tier as
-	// --git-dir/--work-tree, wherever they sit (bare, or after `env`).
+	// GIT_DIR relocates the claim target wherever the assignment sits (bare or
+	// after `env`); no env assignment changes a tier.
 	let envTarget: string | undefined;
-	let envFlag = false;
 	const stripAssignments = (): void => {
 		while (words.length > 0 && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[0])) {
-			if (RELOCATING_ENV.test(words[0])) {
-				envFlag = true;
-				const v = words[0].slice(words[0].indexOf("=") + 1);
-				if (/^GIT_DIR=/i.test(words[0])) envTarget = v;
-			}
+			const v = words[0].slice(words[0].indexOf("=") + 1);
+			if (GIT_DIR_ENV.test(words[0])) envTarget = v;
 			words = words.slice(1);
 		}
 	};
@@ -399,11 +448,10 @@ export function classifySegment(segment: string): Classification {
 		return { tier: "allow", shape: "other" };
 	}
 	stripAssignments();
-	if (words[0] === "git" && envFlag) {
+	if (words[0] === "git") {
 		const c = classifyGit(words.slice(1));
-		return { ...c, tier: c.tier === "allow" ? "ask" : c.tier, targetDir: envTarget ?? c.targetDir, reason: c.reason ?? "git with a relocating GIT_* environment assignment" };
+		return envTarget === undefined ? c : { ...c, targetDir: envTarget ?? c.targetDir };
 	}
-	if (words[0] === "git") return classifyGit(words.slice(1));
 	if (words[0] === "gh") return classifyGh(words.slice(1));
 	if (words[0] === "pkill" || words[0] === "pgrep") return classifyPkill(words, segment);
 	return { tier: "allow", shape: "other" };
@@ -425,10 +473,6 @@ export function classifyCommand(cmd: string): Classification {
 	if (parts.length === 0) return { tier: "allow", shape: "other", targetDir: target };
 	let worst = parts[0];
 	for (const p of parts) if (TIER_RANK[p.tier] > TIER_RANK[worst.tier]) worst = p;
-	// `git add` is the one allow-tier shape that mutates the index and meets the
-	// claim floor — a compound where any segment adds must surface that shape
-	// even when another allow segment wins the tie.
-	if (worst.tier === "allow" && parts.some((p) => p.shape === "git add")) worst = { ...worst, shape: "git add" };
 	const pushPart = parts.find((p) => p.shape === "git push");
 	return { ...worst, targetDir: worst.targetDir ?? target, ...(pushPart?.pushArgs ? { pushArgs: pushPart.pushArgs } : {}) };
 }

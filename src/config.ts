@@ -15,7 +15,7 @@ import * as path from "node:path";
 export const CONFIG_NAME = "pi-kit.json";
 
 /** Shapes a standing allow may pin — ask-tier only; anything else is rejected at load. */
-export const ASK_SHAPES = ["git_commit", "git push", "gh pr create", "gh pr edit", "gh comment", "gh api"] as const;
+export const ASK_SHAPES = ["git_commit", "git push", "gh pr create", "gh pr edit", "gh comment"] as const;
 export type AskShape = (typeof ASK_SHAPES)[number];
 
 export interface StandingAllow {

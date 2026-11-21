@@ -7,8 +7,8 @@
  */
 
 import { hostname } from "node:os";
-import { BLIND, decideClaim, probeWith, type StampRecord } from "./claim.ts";
-import { LOCK_NAME, createStamp, readStartToken, readStamp, takeLock, writeStamp } from "./stamp.ts";
+import { BLIND, decideClaim, type StampRecord } from "./claim.ts";
+import { LOCK_NAME, createStamp, lockProbe, readStartToken, readStamp, takeLock, writeStamp } from "./stamp.ts";
 import { gitRootOf, piDirIgnored, type ExecFn } from "./githelp.ts";
 
 export type EnsureResult = { ok: true; row: number } | { ok: false; reason: string };
@@ -17,17 +17,8 @@ export function selfOf(sid: string): StampRecord {
 	return { sid, pid: process.pid, host: hostname(), token: readStartToken(process.pid) };
 }
 
-const SELF_PROBE = probeWith(
-	(pid) => readStartToken(pid),
-	(pid) => {
-		try {
-			process.kill(pid, 0);
-			return true;
-		} catch {
-			return false;
-		}
-	},
-);
+// The liveness probe is stamp.ts's lockProbe — one closure, shared by stamps and locks.
+const SELF_PROBE = lockProbe;
 
 /**
  * Ensure this session holds the checkout at `root` — rows 0–7. `sid` empty or

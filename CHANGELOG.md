@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.2.0 — 2026-11-21
+
+Both bash-floor classifiers inverted to blacklists (pi-spirit): every
+agent-typed git/gh command defaults to allow; only high-risk operations
+gate.
+
+- git gated rows: `git commit` bash forms (refuse — the `git_commit` tool
+  route), `git push` (ask, owner-checked — unchanged), `git tag` write forms
+  (new — ask; list forms flow), and the destructive footgun set
+  (`reset --hard`, `clean`, `checkout --`/`.`/`./`/`:/`/force/`-B`, worktree
+  `restore`, `stash drop/clear`, `branch -D`, `rebase`,
+  amend/`--no-verify`/`-n`, force/delete push, `reflog expire/delete`;
+  `restore --staged` alone now flows).
+- gh gated rows: the post surfaces (`pr create/edit`, `pr`/`issue comment`,
+  `pr review --comment`, `issue create/edit`) keep the bound-`--body-file`
+  discipline (ask; inline prose refuses), state verbs and review verdicts
+  keep refusing, and `release create/upload` joins at ask (the git-tag
+  twin). Everything else — unlisted verbs, `pr checkout`, `gh api` GET and
+  non-mutation implicit POST — flows.
+- An unknown git/gh global flag asks outright (on git, known valueless
+  globals like `-p`/`--paginate` shift bare): no flag's value or subcommand masquerades
+  past the gate (`git -p push origin main` and `git --namespace x push`
+  both ask). Claim targets and post `--body-file` paths expand
+  `~`/`$VAR`/`${VAR}` as the shell would (fixes the `cd ~/repo && git …` and
+  `cd $D && git …` false blocks); unexpandable residue blocks loudly.
+- Routine local writes no longer stop at the claim floor (`git add`
+  included) — the tracked-edit floor and the tools carry the invariant;
+  `standingAllows` drops the now-allow-tier `gh api` shape.
+- Footer: one-time dialog approvals annotate the tool result instead of
+  persisting; session approvals render as action names; the approve record
+  now persists the quoted source in its session entry (the audit trail);
+  the pi-kit segment self-labels `[pi-kit: …]` on pi's shared footer line.
+- Liveness probe closure deduped (claimrun uses stamp's lockProbe); the
+  dead input listener is gone.
+
+Heredoc bodies are stdin data — swallowed whole unless the receiver is a
+shell (bash/sh/zsh/dash/ksh), whose body keeps classifying line by line
+(an identifier-shaped tag is required, so `$((1<<2)) && git push` still
+gates); escaped quotes inside double quotes no longer split a quoted
+string; gate dialogs preview the command as one capped line (160 chars),
+never a screen-covering echo.
+
+78 unit tests across six suites (classify rewritten to the blacklists, new
+util suite for expandShellPath); npm test and tsc clean.
+
 ## 0.1.0 — 2026-11-21
 
 First cut: the personal hard-boundary package for the pi coding agent — three

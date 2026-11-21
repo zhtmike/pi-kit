@@ -1,6 +1,6 @@
 {
 	"name": "pi-kit",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Personal hard-boundary tools for the pi coding agent: checkout claim, git/gh approval floors, review-surface scaffolds",
 	"author": "Mike Cheung",
 	"keywords": [
@@ -17,7 +17,7 @@
 		"node": ">=22.19.0"
 	},
 	"scripts": {
-		"test": "node tests/config.test.ts && node tests/classify.test.ts && node tests/claim.test.ts && node tests/approvals.test.ts && node tests/envelopes.test.ts"
+		"test": "node tests/config.test.ts && node tests/classify.test.ts && node tests/claim.test.ts && node tests/approvals.test.ts && node tests/envelopes.test.ts && node tests/util.test.ts"
 	},
 	"peerDependencies": {
 		"@earendil-works/pi-coding-agent": "*"

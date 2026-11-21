@@ -3,12 +3,13 @@
  * the manifest: the claim block short-circuits before any ask dialog). The
  * floor gates tracked edit/write outside `.pi/**` (resolved through symlinks)
  * plus `.pi/OWNER.json`/`.pi/REVIEW_BINDS.json`, and create-or-blocks the
- * claim for ask-tier/destructive/`git add` bash shapes. The `checkout` tool
- * is the constructive path; no `release` action — the stamp is not a chore
- * the model performs.
+ * claim for ask-tier/destructive bash shapes (the git blacklist's gated
+ * rows). The `checkout` tool is the constructive path; no `release` action —
+ * the stamp is not a chore the model performs.
  */
 
 import * as fs from "node:fs";
+import { homedir } from "node:os";
 import * as path from "node:path";
 import { Type } from "typebox";
 import { defineTool, isToolCallEventType, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -17,6 +18,7 @@ import { classifyCommand } from "../src/classify.ts";
 import { ensureClaimAt, selfOf } from "../src/claimrun.ts";
 import { readStamp, stampPath, unlinkIfOurs } from "../src/stamp.ts";
 import { gitRootOf, isTracked, piDirIgnored, type ExecFn } from "../src/githelp.ts";
+import { expandShellPath, UNEXPANDED_RE } from "../src/util.ts";
 import { setStatusPart } from "../src/status.ts";
 import { fenceOff, ok, stringEnum } from "./shared.ts";
 
@@ -31,6 +33,11 @@ export default function (pi: ExtensionAPI) {
 	let currentSid = ""; // for best-effort quit hygiene outside event contexts
 
 	const exec: ExecFn = (cmd, args, opts = {}) => pi.exec(cmd, args, opts);
+	/** Expand a claim target as the shell would; null marks unexpanded residue (block loudly). */
+	const resolveTarget = (raw: string): string | null => {
+		const ex = expandShellPath(raw, homedir(), process.env);
+		return UNEXPANDED_RE.test(ex) ? null : path.resolve(ex);
+	};
 	let root: string | null = null; // this process's tree, resolved lazily
 
 	const treeOf = async (dir: string): Promise<string | null> => {
@@ -81,11 +88,13 @@ export default function (pi: ExtensionAPI) {
 
 		if (isToolCallEventType("bash", event)) {
 			const c = classifyCommand(event.input.command);
-			// Ask-tier/destructive shapes and `git add` (allow-tier but index-mutating)
-			// create-or-block the claim; read-only allows, refuse shapes, and the
-			// self-match guard pass to the git-api floor.
-			if (c.tier === "ask" || c.tier === "destructive" || c.shape === "git add") {
-				const dir = c.targetDir !== undefined ? path.resolve(c.targetDir) : ctx.cwd ?? process.cwd();
+			// Gated rows (ask/destructive) create-or-block the claim before any dialog;
+			// allow-tier and refuse shapes pass to the git-api floor (or run ungated).
+			if (c.tier === "ask" || c.tier === "destructive") {
+				const dir = c.targetDir === undefined ? ctx.cwd ?? process.cwd() : resolveTarget(c.targetDir);
+				if (dir === null) {
+					return { block: true, reason: `claim target '${c.targetDir}' did not fully expand (unset variable or unsupported form) — name the path absolutely or run from inside the tree` };
+				}
 				const sid = ctx.sessionManager.getSessionId() ?? "";
 				// A classified git command's claim target is strict: unresolved blocks.
 				const r = await ensureClaimAt(exec, dir, sid, { strict: true });

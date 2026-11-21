@@ -22,13 +22,13 @@ the process aborts (TUI shows the block and shuts down; print/JSON exit 1).
 	"ownerLogins": ["zhtmike"],           // logins whose remotes `git push` may resolve to (empty = every push refused)
 	"standingAllows": [                   // per-repo pre-approvals, ask-tier shapes only
 		{ "repo": "zhtmike/skills", "shapes": ["git_commit", "git push"] },
-		{ "repo": "*", "shapes": ["gh api"] }
+		{ "repo": "*", "shapes": ["gh comment"] }
 	]
 }
 ```
 
 Standing shapes: `git_commit`, `git push`, `gh pr create`, `gh pr edit`,
-`gh comment`, `gh api`. Destructive and refuse shapes are rejected at load.
+`gh comment`. Destructive and refuse shapes are rejected at load.
 The `git push` owner check (`ownerLogins`) still applies under any allow.
 
 ## The checkout claim (extension 1)
@@ -67,7 +67,7 @@ quit/exit unlinks it best-effort (reload/new/resume/fork keep it).
 ### What the floor sees
 
 - `edit`/`write` on **tracked** paths outside `.pi/**` (target resolved through symlinks — an edit under a symlinked install is gated against the source repo's tree), plus `.pi/OWNER.json` (names `checkout`) and `.pi/REVIEW_BINDS.json` (names `review_bind`). Every other `.pi/**` path passes; untracked writes, non-git trees, `user_bash`, and redirections are not seen (the named tunnel — a shell redirect onto `OWNER.json` rides it).
-- bash shapes that are ask-tier or destructive, plus `git add`: create-or-block the claim **before** any ask dialog (the manifest order pins this).
+- bash shapes that are ask-tier or destructive: create-or-block the claim **before** any ask dialog (the manifest order pins this). Allow-tier git shapes — `git add` included — do not stop at the claim floor; a local write into a foreign-held tree is standing-assumption residue (the tracked-edit floor and the tools carry the invariant for the paths that matter).
 - A dispatched lane with `edit` granted is gated the same way.
 
 ## Git/gh operations (extension 2)
@@ -76,21 +76,31 @@ quit/exit unlinks it best-effort (reload/new/resume/fork keep it).
 
 | shape | tier |
 |---|---|
-| `git status/diff/log/show/ls-files/ls-tree/rev-parse/describe/blame/grep`, `git reflog` (no expire/delete), `git fetch`, `git add`; `gh pr view/diff/list`, `gh issue view/diff/list`, `gh run view/list/download`, `gh repo view/list/download`, `gh label view/list`, `gh release view/list/download`, `gh workflow view/list/download`, `gh search …`; `gh api` GET | **allow** — `git add` still meets the claim floor |
-| `git push` (no force form, resolved owner ∈ `ownerLogins`); `gh pr create`; `gh pr edit --title/--body-file`; gh comment/reply/label edits; other `gh api` (implicit-POST reads incl. graphql queries) | **ask** — dialog offers once / for-this-session / refuse; session approvals and `standingAllows` may cover it |
-| `git rebase`, `reset --hard`, `clean`, `commit --amend`, `commit --no-verify`/`-n`, `restore`/`checkout -- <path>`/`checkout .`, `stash drop/clear`, force/delete push forms (`--force`, `-f`, `--force-with-lease`, `--force-if-includes`, `+refspec`, `:branch`, `--delete`), `branch -D` | **destructive** — dialog offers once / refuse only; never covered |
-| bash `git commit` in any plain form (`-m`, `-F`, `-t`; the `--amend`/`--no-verify`/`-n` forms are destructive-tier); `git push` to a non-`ownerLogins` (or unparseable — SSH alias, non-GitHub) remote; `gh pr review --approve/--request-changes`; `gh pr merge/close/reopen/ready`; issue close/reopen/delete; PR→draft; `gh api` non-GET that merges/closes/submits a review verdict; graphql `mutation` | **refuse** — no dialog, no coverage; the reason names `git_commit` where it exists |
+| every other agent-typed git command — reads, routine local writes (branch/switch/checkout/stash/merge/pull/`restore --staged`/soft-mixed reset/config/remote/rm/add/worktree/submodule/…), unlisted subcommands, and relocated (`-C`/`--git-dir`/`GIT_DIR`) or `-c`-configured forms; and every other gh command — all reads/downloads/searches, `pr checkout`, unlisted verbs, and `gh api` GET, implicit POST, or explicit `-X` with no state path and no prose fields | **allow** — no dialog, no claim-floor stop |
+| `git push` (no force form, resolved owner ∈ `ownerLogins`); `git tag` write forms (create/`-f`/`-d`; list forms flow); gh post surfaces — `gh pr create`, `gh pr edit`, `gh pr/issue comment`, `gh pr review --comment`, `gh issue create/edit` (inline prose is refuse below); `gh release create/upload` (the git-tag twin) | **ask** — dialog offers once / for-this-session / refuse; session approvals and `standingAllows` may cover it |
+| `git reset --hard`, `clean`, `checkout -- <path>`/`checkout .`/`./`/`:/`/force/`-B` (bare `checkout <file>` without `--` is documented residue), `restore` (worktree forms; `--staged`-only flows), `stash drop/clear`, `branch -D`, `rebase`, `commit --amend`, `commit --no-verify`/`-n`, force/delete push forms (`--force`, `-f`, `--force-with-lease`, `--force-if-includes`, `+refspec`, `:branch`, `--delete`), `git reflog expire/delete` | **destructive** — dialog offers once / refuse only; never covered |
+| bash `git commit` in any plain form (`-m`, `-F`, `-t`; the `--amend`/`--no-verify`/`-n` forms are destructive-tier); `git push` to a non-`ownerLogins` (or unparseable — SSH alias, non-GitHub) remote; gh state verbs — `pr merge/close/reopen/ready`, `issue close/reopen/delete`, PR→draft, `release delete/archive`, and the state verbs on any gh noun; `gh pr review --approve/--request-changes`; `gh api` (GET or POST) that merges/closes/submits a review verdict, graphql `mutation`, or prose via `-f body=`; inline gh prose (`--body`, heredoc, `--body-file -`) | **refuse** — no dialog, no coverage; the reason names `git_commit` where it exists |
 
 Closing rules: anything that changes PR/issue state or posts a review verdict
 is refuse. A gh post carrying prose is ask **only** with `--body-file` of a
 [bound](#tool-review_bind) file; inline `--body`, heredocs, and pipes
 (`--body-file -`) are refuse naming `--body-file`; `--title` is metadata (no
 bind). Any `-f`/`-F` makes `gh api` a POST regardless of `-X`. Compound
-commands evaluate per segment, most-restrictive-wins. Wrappers (`sudo`,
-`env`, `bash -c`, `xargs`, …) classify the inner command; an unclassifiable
-git/gh inside asks. `-C`/`--git-dir`/`-c`/`--work-tree` make the tier at
-least ask; the claim target is `--git-dir`, else `-C`, else the cwd after a
-leading `cd`. Bare push resolves
+commands evaluate per segment, most-restrictive-wins; a heredoc body is
+stdin data — swallowed whole unless the receiver is a shell (`bash`/`sh`/
+`zsh`/`dash`/`ksh`), whose body keeps classifying segment by segment —
+an unclosed quote inside such a body (an apostrophe in a comment, say)
+swallows the rest of the script into one lump (residue, below). Wrappers (`sudo`,
+`env`, `bash -c`, `xargs`, …) classify the inner command; a git or gh
+first token that is not a plausible subcommand asks, and an unknown global
+flag asks outright — on git, known valueless globals (`-p`/`--paginate`
+and friends) shift bare; no flag's value or subcommand masquerades past the
+gate. `-C`/`--git-dir`/`GIT_DIR` record
+the claim target (`--git-dir`/`GIT_DIR` first, else `-C`, else the cwd after
+a leading `cd`) and never change a tier; `-c` and other global flags only
+consume their value. Claim targets and post `--body-file` paths expand
+`~`/`$VAR`/`${VAR}` as the shell would; unexpandable names (same-line
+assignments, `${VAR:-def}`) block loudly at resolution. Bare push resolves
 `branch.<name>.pushRemote` → `remote.pushDefault` → `branch.<name>.remote` →
 `origin`; a URL argument is parsed itself. `pkill -f`/`pgrep -f` whose
 pattern matches the calling shell's own command string blocks with the
@@ -116,7 +126,9 @@ decides, and the record is the audit trail.
 owner's TUI session (mode `tui`, no child markers — lanes and headless runs
 never self-approve; their channel is `standingAllows`). Grants last until
 quit, survive compaction (session entries), replay in file order, and show
-on the footer with their source quote. Dialog "for-this-session" clicks use
+on the footer as action names (`approved: commit, push`; the quoted source
+lives in the session entry — the audit trail, not the footer). Dialog
+"for-this-session" clicks use
 the same record. A named `commit` or `push` covers every later matching op
 until quit — new files, public signatures, new dependencies, >50 lines
 included; the fresh-review bind still runs per diff. `push` stays
@@ -198,3 +210,14 @@ plays the footer's role), and the review's footer discloses.
 
 No judgment gating, no MCP, no network at runtime, no cross-harness
 portability, no publish. The floor is a forgetting backstop, not a sandbox.
+Standing-assumption residue, documented rather than gated: git aliases
+(`git config --get alias.<word>` shows any that appear), `GIT_CONFIG_*`
+injections, exotic plumbing writers (`filter-repo`, `update-ref`,
+`replace`, `fast-import`, …), force-bundled local spellings past the footgun
+set (`rm -f`, `branch -f`/`-M`, `switch -C`, bare `checkout <file>` without
+`--`), and gh run/workflow triggers (`run cancel/rerun`, `workflow run`) ride the
+default-allow; a heredoc fed to a NON-shell interpreter (`python3 - <<EOF`)
+is stdin data, swallowed whole — interpreter-side shell-string smuggling is
+unseen; inside a shell-fed heredoc body, an unclosed quote (apostrophes in
+comments) swallows the remainder past the gate — the no-git-aliases assumption on the owner's machines is
+recorded in AGENTS.md.

@@ -44,15 +44,15 @@ reference never enters context.
 - Fail loudly, never silently fall back: a refusal names the exact fix — the API tool, the config key, the escape action. Wrong input names itself and the valid choices.
 - Fail closed at gate and init: a config error registers the blocking handler first, then aborts (`ctx.shutdown()` in TUI/RPC; `process.exit(1)` in print/JSON) — a factory throw would silently drop the extension and leave the process ungated.
 - Extension order in the manifest is the short-circuit order; cross-package order is pi's (loose extensions load first — assumed absent on the owner's machines).
-- The bash floors are token-grade, not a shell AST: unknown shapes ask, never allow; the redirection/script tunnel is named in docs/api.md, not "fixed" with a parser.
-- Standing assumptions recorded, not enforced: no git aliases on the owner's machines (if one appears, the dialog shows `git config --get alias.<word>`'s expansion); a human-run `git clean -fdx`/`git stash -u` destroys `.pi/worktrees/*` (nested worktrees are invisible to it).
+- The bash floors are token-grade, not a shell AST: git and gh both gate by blacklist — only the high-risk rows of docs/api.md gate, everything else allows (an unknown global flag asks). The redirection/script, alias-injection, and exotic-writer tunnels are named in docs/api.md, not "fixed" with a parser.
+- Standing assumptions recorded, not enforced: no git aliases on the owner's machines (if one appears, `git config --get alias.<word>` shows the expansion before trusting the aliased command); a human-run `git clean -fdx`/`git stash -u` destroys `.pi/worktrees/*` (nested worktrees are invisible to it).
 - Config is pi's overlay convention at both layers (`~/.pi/agent/pi-kit.json`, `.pi/pi-kit.json`); unknown keys and destructive/refuse standing shapes throw at load.
 - Tabs for indentation; WHY-comments only, two lines max; no PR/issue citations in comments.
 - Every behavior change ships with a unit test in the same change; run `npm test` and `npx tsc --noEmit` before declaring done.
 
 ## Testing
 
-`npm test` (five plain-node suites on the pure cores) and the typecheck gates
+`npm test` (six plain-node suites on the pure cores) and the typecheck gates
 in CI (floor 1.4.0, canary latest). UI/event wiring is proven by live runs —
 the proving scenarios live in the repo's design history; when you exercise
 one, record what ran in the PR description.

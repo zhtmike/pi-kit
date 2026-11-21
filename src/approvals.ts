@@ -16,7 +16,7 @@ export function isApprovalAction(v: string): v is ApprovalAction {
 }
 
 /** Fold one recorded entry onto a grant set (replay folds file order; a clear terminates what precedes). */
-export type ApprovalEntry = { granted?: ApprovalAction[]; cleared?: boolean };
+export type ApprovalEntry = { granted?: ApprovalAction[]; cleared?: boolean; source?: string };
 export function foldEntry(set: Set<ApprovalAction>, e: ApprovalEntry): Set<ApprovalAction> {
 	if (e.cleared) return new Set();
 	for (const a of e.granted ?? []) set.add(a);

@@ -11,6 +11,7 @@
  */
 
 import * as fs from "node:fs";
+import { homedir } from "node:os";
 import * as path from "node:path";
 import { Type } from "typebox";
 import { defineTool, isToolCallEventType, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -22,6 +23,7 @@ import { findBind, recordBinds, sha256File, spendBind } from "../src/binds.ts";
 import { ensureClaimAt, selfOf } from "../src/claimrun.ts";
 import { gitRootOf, piDirIgnored, repoIdentity, resolvePushTarget, writeTree, type ExecFn } from "../src/githelp.ts";
 import { setStatusPart, bindStatusSink } from "../src/status.ts";
+import { expandShellPath, UNEXPANDED_RE } from "../src/util.ts";
 import { fenceOff, ok, stringEnum } from "./shared.ts";
 
 const APPROVAL_ENTRY = "pi-kit-approvals";
@@ -35,13 +37,17 @@ export default function (pi: ExtensionAPI) {
 	}
 
 	const exec: ExecFn = (cmd, args, opts = {}) => pi.exec(cmd, args, opts);
+	/** Expand a claim target as the shell would; null marks unexpanded residue (block loudly). */
+	const resolveTarget = (raw: string): string | null => {
+		const ex = expandShellPath(raw, homedir(), process.env);
+		return UNEXPANDED_RE.test(ex) ? null : path.resolve(ex);
+	};
 
 	// --- session approvals  ------------------------------------------------------------
 
 	let grants = new Set<ApprovalAction>();
 	let recordFailure: string | undefined;
-	const grantSources = new Map<ApprovalAction, string>(); // action → quoted user text (the audit trail)
-	const allowedVia = new Map<string, string>(); // toolCallId → approval source (headless result annotation)
+	const allowedVia = new Map<string, string>(); // toolCallId → approval source (result annotation)
 
 	/** Lanes carry the dispatch child marker; nothing else gets recorded-from. */
 	const childMarker = (): boolean => process.env.PI_MINIMAL_DISPATCH_CHILD === "1";
@@ -49,11 +55,10 @@ export default function (pi: ExtensionAPI) {
 	const humanChannel = (mode: string, source: string | undefined): boolean =>
 		mode === "tui" && source === "interactive" && !childMarker();
 
-	function recordEntry(data: { granted?: ApprovalAction[]; cleared?: boolean }, source?: string): boolean {
+	function recordEntry(data: { granted?: ApprovalAction[]; cleared?: boolean; source?: string }): boolean {
 		try {
 			pi.appendEntry(APPROVAL_ENTRY, data);
 			recordFailure = undefined;
-			if (source !== undefined) for (const a of data.granted ?? []) grantSources.set(a, source);
 			return true;
 		} catch (e) {
 			recordFailure = `approval record failed: ${(e as Error).message} — the op is NOT covered (fail closed)`;
@@ -63,17 +68,13 @@ export default function (pi: ExtensionAPI) {
 
 	function approvalFooter(): void {
 		const parts: string[] = [];
-		if (grants.size > 0) {
-			const quoted = [...grants].map((a) => (grantSources.has(a) ? `${a} ("${grantSources.get(a)}")` : a)).join(", ");
-			parts.push(`approved: ${quoted}`);
-		}
+		if (grants.size > 0) parts.push(`approved: ${[...grants].join(", ")}`);
 		if (recordFailure !== undefined) parts.push(recordFailure);
 		setStatusPart("gate", parts.length > 0 ? parts.join(" · ") : undefined);
 	}
 
 	// Recognition is the session agent's judgment — the `approve` tool records
 	// what it judged granted (TUI-channel only); no phrase matcher runs on input.
-	pi.on("input", async () => ({ action: "continue" }));
 
 	pi.on("session_start", (event, ctx) => {
 		bindStatusSink((line) => ctx.ui.setStatus("pi-kit", line));
@@ -104,13 +105,21 @@ export default function (pi: ExtensionAPI) {
 		if (c.tier === "allow") return;
 		if (c.tier === "selfmatch" || c.tier === "refuse") return { block: true, reason: c.reason };
 
-		const dir = c.targetDir !== undefined ? path.resolve(c.targetDir) : ctx.cwd ?? process.cwd();
+		const dir = c.targetDir === undefined ? ctx.cwd ?? process.cwd() : resolveTarget(c.targetDir);
+		if (dir === null) {
+			return { block: true, reason: `claim target '${c.targetDir}' did not fully expand (unset variable or unsupported form) — name the path absolutely or run from inside the tree` };
+		}
 		const sid = ctx.sessionManager.getSessionId() ?? "";
 
 		if (c.tier === "ask") {
 			// gh posts bind first: --body-file must point at a bound file.
-			if (c.bodyFile !== undefined && !(await checkPostBind(dir, c.bodyFile))) {
-				return { block: true, reason: bindRefusal(c.bodyFile) };
+			if (c.bodyFile !== undefined) {
+				if (UNEXPANDED_RE.test(expandShellPath(c.bodyFile, homedir(), process.env))) {
+					return { block: true, reason: `--body-file '${c.bodyFile}' did not fully expand (unset variable or unsupported form) — name the file absolutely` };
+				}
+				if (!(await checkPostBind(dir, c.bodyFile))) {
+					return { block: true, reason: bindRefusal(c.bodyFile) };
+				}
 			}
 			// push resolves an owner; non-owner and unparseable targets refuse without a dialog.
 			if (c.shape === "git push") {
@@ -144,17 +153,18 @@ export default function (pi: ExtensionAPI) {
 				setStatusPart("wait", `waiting on person: ${c.shape}`);
 				const options = action !== undefined ? ["Approve once", "Approve for this session", "Refuse"] : ["Approve once", "Refuse"];
 				try {
-				const choice = await ctx.ui.select([`pi-kit gate: ${c.tier}`, event.input.command, ...(c.reason ?? "").split("\n")].filter((l) => l !== "").join("\n"), options);
-				setStatusPart("wait", undefined);
-				if (choice === undefined || choice === "Refuse") {
-					return { block: true, reason: `refused in dialog: ${event.input.command}` };
-				}
-				if (action !== undefined && choice === "Approve for this session" && recordEntry({ granted: [action] }, "dialog")) {
-					grants.add(action);
-					approvalFooter();
-				}
-				setStatusPart("gate", `dialog-approved: ${c.shape}`);
-				return;
+					const choice = await ctx.ui.select([`pi-kit gate: ${c.tier}`, preview(event.input.command), ...(c.reason ?? "").split("\n")].filter((l) => l !== "").join("\n"), options);
+					setStatusPart("wait", undefined);
+					if (choice === undefined || choice === "Refuse") {
+						return { block: true, reason: `refused in dialog: ${event.input.command}` };
+					}
+					if (action !== undefined && choice === "Approve for this session" && recordEntry({ granted: [action], source: "dialog" })) {
+						grants.add(action);
+						approvalFooter();
+					}
+					// One-time approvals never persist on the footer — the tool result carries the annotation.
+					allowedVia.set(event.toolCallId, choice === "Approve for this session" ? "dialog (approved for this session)" : "dialog (approve once)");
+					return;
 				} finally {
 					setStatusPart("wait", undefined);
 				}
@@ -172,9 +182,9 @@ export default function (pi: ExtensionAPI) {
 		if (ctx.hasUI) {
 			setStatusPart("wait", `waiting on person: ${c.shape} (destructive)`);
 			try {
-				const choice = await ctx.ui.select(["pi-kit gate: destructive", event.input.command, "Destructive-tier: approve-once only — never covered by any approval."].join("\n"), ["Approve once", "Refuse"]);
+				const choice = await ctx.ui.select(["pi-kit gate: destructive", preview(event.input.command), "Destructive-tier: approve-once only — never covered by any approval."].join("\n"), ["Approve once", "Refuse"]);
 				if (choice === "Approve once") {
-					setStatusPart("gate", `dialog-approved: ${c.shape} (once)`);
+					allowedVia.set(event.toolCallId, "dialog (approve once)");
 					return;
 				}
 				return { block: true, reason: `refused in dialog: ${event.input.command}` };
@@ -192,7 +202,7 @@ export default function (pi: ExtensionAPI) {
 		const root = await gitRootOf(exec, dir);
 		if (root === null) return false;
 		try {
-			const hash = sha256File(path.resolve(dir, file));
+			const hash = sha256File(path.resolve(dir, expandShellPath(file, homedir(), process.env)));
 			return findBind(root, "post", hash, "") !== undefined;
 		} catch {
 			return false;
@@ -213,18 +223,25 @@ export default function (pi: ExtensionAPI) {
 		return { content: [...event.content, { type: "text" as const, text: `\n[pi-kit: allowed via ${source}]` }] };
 	});
 
-	// --- approve: the agent judges, the tool records -----------------------------------------
+	
+/** Dialog-safe command preview — one line, capped; never a wall of text over the TUI. */
+function preview(cmd: string): string {
+	const oneLine = cmd.replace(/\s+/g, " ").trim();
+	return oneLine.length > 160 ? `${oneLine.slice(0, 157)}…` : oneLine;
+}
+
+// --- approve: the agent judges, the tool records -----------------------------------------
 
 	const approveTool = defineTool({
 		name: "approve",
 		label: "Record a session approval",
 		description:
 			"Record that the user approved the named gated actions for this session — call it when their TUI message grants them (your judgment: a directive or an approval of the session/gate/verbs; hedges, negations, and questions are not approvals). " +
-			"Coverable actions: commit, push (owner-checked), pr_create, pr_edit. `source` quotes the user's words — the audit trail the footer shows. " +
+			"Coverable actions: commit, push (owner-checked), pr_create, pr_edit. `source` quotes the user's words — the audit trail in the session entry. " +
 			"Refuse-tier and destructive shapes are never coverable; grants last until quit.",
 		parameters: Type.Object({
 			actions: Type.Array(stringEnum(ALL_ACTIONS as unknown as readonly string[], { description: "The actions the user approved" })),
-			source: Type.String({ description: "Short quote of the user's approving words (shows on the footer)" }),
+			source: Type.String({ description: "Short quote of the user's approving words (recorded in the session entry)" }),
 		}),
 
 		async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -238,11 +255,12 @@ export default function (pi: ExtensionAPI) {
 				actions.push(a);
 			}
 			if (params.source.trim() === "") throw new Error("source quotes the user's approving words — an unquoted grant has no audit trail");
-			if (recordEntry({ granted: actions }, params.source.trim().slice(0, 120))) {
+			const source = params.source.trim().replace(/^"([\s\S]*)"$/, "$1").slice(0, 120);
+			if (recordEntry({ granted: actions, source })) {
 				for (const a of actions) grants.add(a);
 			}
 			approvalFooter();
-			return ok(`recorded: ${actions.join(", ")} approved for this session ("${params.source.trim().slice(0, 120)}") — ask-tier coverage until quit; refuse/destructive shapes stay barred.`);
+			return ok(`recorded: ${actions.join(", ")} approved for this session ("${source}") — ask-tier coverage until quit; refuse/destructive shapes stay barred.`);
 		},
 	});
 	pi.registerTool(approveTool);
@@ -357,7 +375,7 @@ export default function (pi: ExtensionAPI) {
 				const choice = await ctx.ui.select(["git_commit: commit the staged diff?", stat.stdout.trim(), "", message].join("\n"), ["Approve once", "Approve for this session", "Refuse"]);
 				setStatusPart("wait", undefined);
 				if (choice === undefined || choice === "Refuse") throw new Error("commit refused in dialog");
-				if (choice === "Approve for this session" && recordEntry({ granted: ["commit"] }, "dialog")) {
+				if (choice === "Approve for this session" && recordEntry({ granted: ["commit"], source: "dialog" })) {
 					grants.add("commit");
 					approvalFooter();
 				}
@@ -442,7 +460,6 @@ function standingShape(c: Classification): AskShape | undefined {
 		"gh pr create": "gh pr create",
 		"gh pr edit": "gh pr edit",
 		"gh comment": "gh comment",
-		"gh api": "gh api",
 	};
 	return map[c.shape];
 }
