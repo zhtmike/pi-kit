@@ -98,28 +98,23 @@ export default function (pi: ExtensionAPI) {
 	// --- session approvals ------------------------------------------------------------
 
 	let grants = new Set<ApprovalAction>();
-	let recordFailure: string | undefined;
 	const allowedVia = new Map<string, string>(); // toolCallId → approval source (result annotation)
 
 	/** Lanes carry the dispatch child marker; nothing else gets recorded-from. */
 	const childMarker = (): boolean => process.env.PI_MINIMAL_DISPATCH_CHILD === "1";
 
-	function recordEntry(data: { granted?: ApprovalAction[]; cleared?: boolean; source?: string }): boolean {
+	/** Record a grant entry; the failure message returns for the caller to fail loud at the point of failure. */
+	function recordEntry(data: { granted?: ApprovalAction[]; cleared?: boolean; source?: string }): string | undefined {
 		try {
 			pi.appendEntry(APPROVAL_ENTRY, data);
-			recordFailure = undefined;
-			return true;
+			return undefined;
 		} catch (e) {
-			recordFailure = F.approvalRecordFailedReason((e as Error).message);
-			return false;
+			return (e as Error).message;
 		}
 	}
 
 	function approvalFooter(): void {
-		const parts: string[] = [];
-		if (grants.size > 0) parts.push(F.gateApprovedLabel([...grants]));
-		if (recordFailure !== undefined) parts.push(recordFailure);
-		setStatusPart("gate", parts.length > 0 ? parts.join(" · ") : undefined);
+		setStatusPart("gate", grants.size > 0 ? F.gateApprovedLabel([...grants]) : undefined);
 	}
 
 	// Recognition is the session agent's judgment — the `approve` tool records
@@ -141,7 +136,6 @@ export default function (pi: ExtensionAPI) {
 			grants = new Set();
 		}
 		if (root === null) treeOf(process.cwd()).catch(() => {});
-		setStatusPart("claim", F.claimPendingLabel(currentSid));
 		approvalFooter();
 	});
 
@@ -150,7 +144,6 @@ export default function (pi: ExtensionAPI) {
 		if (event.reason !== "quit") return;
 		recordEntry({ cleared: true });
 		unlinkIfOursNow();
-		setStatusPart("claim", undefined);
 	});
 	process.on("exit", () => {
 		try {
@@ -194,8 +187,6 @@ export default function (pi: ExtensionAPI) {
 			if (!(await isTracked(exec, treeRoot, relPath))) return; // untracked writes are not seen
 			const sid = ctx.sessionManager.getSessionId() ?? "";
 			const r = await ensureClaimAt(exec, dir, sid);
-			if (!r.ok) setStatusPart("claim", F.claimBlockedLabel(r.reason ?? ""));
-			else setStatusPart("claim", F.claimLabel(sid));
 			return r.ok ? undefined : { block: true, reason: r.reason };
 		}
 
@@ -209,7 +200,6 @@ export default function (pi: ExtensionAPI) {
 				const sid = ctx.sessionManager.getSessionId() ?? "";
 				// A classified git command's claim target is strict: unresolved blocks.
 				const r = await ensureClaimAt(exec, dir, sid, { strict: true });
-				if (!r.ok) setStatusPart("claim", F.claimBlockedLabel(r.reason ?? ""));
 				return r.ok ? undefined : { block: true, reason: `claim check failed first — ${r.reason}` };
 			}
 			return;
@@ -252,32 +242,31 @@ export default function (pi: ExtensionAPI) {
 			const repoIdent = await repoIdentity(exec, dir);
 			const action = actionOfShape(c.shape);
 			if (action !== undefined && standingCovers(cfg, repoIdent, action)) {
-				setStatusPart("gate", F.gateStandingLabel(c.shape));
 				allowedVia.set(event.toolCallId, `standing allow (${action})`);
 				return;
 			}
 			if (action !== undefined && grants.has(action)) {
-				setStatusPart("gate", F.gateSessionLabel(c.shape));
 				allowedVia.set(event.toolCallId, "session approval");
 				return;
 			}
 			if (ctx.hasUI) {
-				setStatusPart("wait", F.waitLabel(c.shape));
 				const options = action !== undefined ? [...F.DIALOG_CHOICES_SESSION] : [...F.DIALOG_CHOICES_ONCE_REFUSE];
-				try {
-					const choice = await ctx.ui.select([F.askDialogTitle(), F.previewCommand(event.input.command), ...(c.reason ?? "").split("\n")].filter((l) => l !== "").join("\n"), options);
-					setStatusPart("wait", undefined);
-					if (choice === undefined || choice === "Refuse") return { block: true, reason: F.dialogRefusedReason(event.input.command) };
-					if (action !== undefined && choice === "Approve for this session" && recordEntry({ granted: [action], source: "dialog" })) {
+				const choice = await ctx.ui.select([F.askDialogTitle(), F.previewCommand(event.input.command), ...(c.reason ?? "").split("\n")].filter((l) => l !== "").join("\n"), options);
+				if (choice === undefined || choice === "Refuse") return { block: true, reason: F.dialogRefusedReason(event.input.command) };
+				let via = "dialog (approve once)";
+				if (action !== undefined && choice === "Approve for this session") {
+					const fail = recordEntry({ granted: [action], source: "dialog" });
+					if (fail === undefined) {
 						grants.add(action);
 						approvalFooter();
+						via = "dialog (approved for this session)";
+					} else {
+						// The click covers this op only — the session record did not persist.
+						via = `dialog (approve once — ${F.approvalRecordFailedReason(fail)})`;
 					}
-					// One-time approvals never persist on the footer — the tool result carries the annotation.
-					allowedVia.set(event.toolCallId, choice === "Approve for this session" ? "dialog (approved for this session)" : "dialog (approve once)");
-					return;
-				} finally {
-					setStatusPart("wait", undefined);
 				}
+				allowedVia.set(event.toolCallId, via);
+				return;
 			}
 			const suggestion = action !== undefined ? ` Standing allow for this shape: { "repo": ${repoIdent ?? "*"}, "shapes": ["${action}"] } in pi-kit.json standingAllows.` : "";
 			return { block: true, reason: F.uncoveredReason(event.input.command, suggestion) };
@@ -289,21 +278,24 @@ export default function (pi: ExtensionAPI) {
 			return;
 		}
 		if (ctx.hasUI) {
-			setStatusPart("wait", F.waitLabel(`${c.shape} (destructive)`));
-			try {
-				const choice = await ctx.ui.select(F.destructiveDialogBody(event.input.command), [...F.DIALOG_CHOICES_DESTRUCTIVE]);
-				if (choice === "Approve once" || choice === "Approve until the session ends") {
-					if (choice === "Approve until the session ends" && recordEntry({ granted: ["destructive"], source: "dialog" })) {
-						grants.add("destructive");
-						approvalFooter();
-					}
-					allowedVia.set(event.toolCallId, choice === "Approve until the session ends" ? "dialog (approved for this session)" : "dialog (approve once)");
-					return;
-				}
+			const choice = await ctx.ui.select(F.destructiveDialogBody(event.input.command), [...F.DIALOG_CHOICES_DESTRUCTIVE]);
+			if (choice !== "Approve once" && choice !== "Approve until the session ends") {
 				return { block: true, reason: F.dialogRefusedReason(event.input.command) };
-			} finally {
-				setStatusPart("wait", undefined);
 			}
+			let via = "dialog (approve once)";
+			if (choice === "Approve until the session ends") {
+				const fail = recordEntry({ granted: ["destructive"], source: "dialog" });
+				if (fail === undefined) {
+					grants.add("destructive");
+					approvalFooter();
+					via = "dialog (approved destructive until the session ends)";
+				} else {
+					// The click covers this op only — the session record did not persist.
+					via = `dialog (approve once — ${F.approvalRecordFailedReason(fail)})`;
+				}
+			}
+			allowedVia.set(event.toolCallId, via);
+			return;
 		}
 		return { block: true, reason: F.destructiveUncoveredReason(c.shape, c.reason) };
 	});
@@ -407,9 +399,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			if (params.source.trim() === "") throw new Error("source quotes the user's approving words — an unquoted grant has no audit trail");
 			const source = params.source.trim().replace(/^"([\s\S]*)"$/, "$1").slice(0, 120);
-			if (recordEntry({ granted: actions, source })) {
-				for (const a of actions) grants.add(a);
-			}
+			const fail = recordEntry({ granted: actions, source });
+			if (fail !== undefined) throw new Error(`${F.approvalRecordFailedReason(fail)} — nothing was recorded or covered; every gated op keeps asking`);
+			for (const a of actions) grants.add(a);
 			approvalFooter();
 			return ok(F.approveBody(actions, source));
 		},
@@ -466,7 +458,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Commit (gated)",
 		description:
 			"Commit the staged diff — hooks on, identity trailers injected, the review bind spent, the approval recorded. " +
-			"Needs a review bind for the staged tree (a pre-approved commit — standing allow or session grant — waives a missing bind; the uncovered TUI fallback asks your user to confirm they reviewed the diff), " +
+			"Needs a review bind for the staged tree (a pre-approved commit — standing allow or session grant — waives a missing bind), " +
 			"then an approval: standing allow, session approval, or dialog. Stage with git add first.",
 		parameters: Type.Object({
 			subject: Type.String({ description: "One-line subject (repo convention when one exists)" }),
@@ -498,14 +490,8 @@ export default function (pi: ExtensionAPI) {
 			} else if (commitPreApproved !== undefined) {
 				// A pre-approval speaks for the commit — the bind is waived (the row still spends when present)
 				bindSource = `waived (${commitPreApproved})`;
-			} else if (ctx.hasUI) {
-				setStatusPart("wait", F.waitLabel("fresh-review bind missing"));
-				const confirmed = await ctx.ui.confirm(F.missingBindDialogTitle(), F.missingBindDialogBody());
-				setStatusPart("wait", undefined);
-				if (confirmed) bindSource = "user confirm (human reviewed the diff)";
-				else throw new Error(F.bindUnboundTuiReason());
 			} else {
-				throw new Error(F.bindUnboundHeadlessReason());
+				throw new Error(F.bindUnboundReason());
 			}
 
 			// Approval: standing → session → dialog.
@@ -516,15 +502,18 @@ export default function (pi: ExtensionAPI) {
 				approvalSource = "session approval";
 			} else if (ctx.hasUI) {
 				const message = commitMessage(params, identity);
-				setStatusPart("wait", F.waitLabel("commit approval"));
 				const choice = await ctx.ui.select([F.commitDialogTitle(), stat.stdout.trim(), "", message].join("\n"), [...F.DIALOG_CHOICES_SESSION]);
-				setStatusPart("wait", undefined);
 				if (choice === undefined || choice === "Refuse") throw new Error("commit refused in dialog");
-				if (choice === "Approve for this session" && recordEntry({ granted: ["commit"], source: "dialog" })) {
-					grants.add("commit");
-					approvalFooter();
-				}
 				approvalSource = "dialog";
+				if (choice === "Approve for this session") {
+					const fail = recordEntry({ granted: ["commit"], source: "dialog" });
+					if (fail === undefined) {
+						grants.add("commit");
+						approvalFooter();
+					} else {
+						approvalSource = `dialog — ${F.approvalRecordFailedReason(fail)}; the grant did not persist`;
+					}
+				}
 			} else {
 				throw new Error(F.commitUnapprovedHeadlessReason());
 			}
@@ -561,7 +550,6 @@ export default function (pi: ExtensionAPI) {
 					throw new Error(`commit landed (${sha}) but the binds lock was held — the row stays unspent and ages out harmlessly (rows are hash-keyed); no re-bind needed.`);
 				}
 			}
-			setStatusPart("gate", F.gateCommittedLabel(sha, approvalSource));
 			return ok(F.commitBody(sha, approvalSource, bindSource, bind !== undefined, hookOutput, stat.stdout.trim(), message), { sha, bindSource, approvalSource });
 		},
 	});

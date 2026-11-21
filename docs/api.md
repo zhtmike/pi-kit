@@ -184,9 +184,10 @@ model at high thinking (the judgment model at maximum thinking only for
 design-grade artifacts, unsettleable reads, or blocking findings). Gates,
 in order: the checkout claim; a review bind for the staged tree (a
 pre-approved commit — standing allow or session grant — waives the missing
-bind; the uncovered case's TUI fallback is a plain-language confirm that
-the user personally reviewed the final diff just now); then an approval
-(standing → session → dialog). On success it verifies the landing commit
+bind; otherwise the refusal names the reviewer-lane loop: dispatch a
+read-only reviewer lane with bind in its tools, re-call commit, re-review
+after further edits until the staged tree matches the bound tree); then an
+approval (standing → session → dialog). On success it verifies the landing commit
 in the log and spends the bind row. If a hook mutated the index
 mid-commit, the commit lands but the result states the divergence — the
 row stays unspent, re-review and re-bind.
@@ -243,12 +244,15 @@ the texts live in `src/format.ts` under test.
 
 ## Status bar
 
-One footer line, parts merged in registration order with the part labels
-carrying the domain (`checkout: …`, `approved: …`, `committed …`) —
-bracketed segments that read apart on pi's single shared status line, the
-shape pi-minimal-dispatch's `[lanes: …]` pinned. Session approvals render
-as action names; one-time dialog approvals annotate the tool result instead
-of persisting; a dialog in flight shows `waiting on person: …`.
+One footer line: `approved: <actions>` while session grants are in force,
+empty otherwise — grants render as action names and survive reload/resume
+(rebuilt from session entries; fork and quit clear them). Everything else
+lives where it happens: claim blocks and refusals in the blocked tool
+result, approval-record failures at the point of failure (the `approve`
+tool errors; a dialog whose for-this-session click failed to persist says
+so in the result annotation), covered ops in the `[pi-kit: allowed via …]`
+result annotation and landed commits in the `commit` result's own body —
+the audit line lives in the transcript, never the footer.
 
 ## Non-goals
 

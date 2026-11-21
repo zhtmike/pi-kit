@@ -15,12 +15,12 @@ const t = (name: string, fn: () => void) => {
 t("parts merge into one bracketed segment, no package prefix; clears when empty", () => {
 	const seen: (string | undefined)[] = [];
 	bindStatusSink((line) => seen.push(line));
-	setStatusPart("claim", "checkout: abc");
-	setStatusPart("gate", "approved: commit, push");
-	assert.equal(seen.at(-1), "[checkout: abc · approved: commit, push]");
-	setStatusPart("gate", undefined);
-	assert.equal(seen.at(-1), "[checkout: abc]");
-	setStatusPart("claim", undefined);
+	setStatusPart("a", "part one");
+	setStatusPart("b", "part two");
+	assert.equal(seen.at(-1), "[part one · part two]");
+	setStatusPart("b", undefined);
+	assert.equal(seen.at(-1), "[part one]");
+	setStatusPart("a", undefined);
 	assert.equal(seen.at(-1), undefined);
 	bindStatusSink(null);
 });

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.1 — 2026-11-21
+
+The TUI audit release: every surface states one thing, in the place it
+happens.
+
+- **Status bar = session grants only** — the seven other footer labels are
+  gone (pending/ours/blocked checkout, standing/session/committed echoes,
+  waiting-on-person): speculative, steady-state, or per-op echoes
+  duplicating what the on-screen dialog, the blocked tool result, or the
+  `[pi-kit: allowed via …]` annotation already carries. The footer renders
+  `approved: <actions>` while grants stand, empty otherwise.
+- **Missing-bind confirm dialog removed** — an unaudited click-through
+  duplicating the approve path that already waives the bind when commit is
+  pre-approved. Unbound commits refuse in TUI exactly as headless, with one
+  reason naming the reviewer-lane loop (review → bind → re-call; re-review
+  after edits until the staged tree matches the bound tree).
+- **Record failures at the point of failure** — `approve` errors loudly when
+  the session record is unwritable; a dialog whose for-this-session click
+  fails to persist annotates the result (approve once + the capped reason)
+  instead of writing a footer part.
+
 ## 0.3.0 — 2026-11-21
 
 The pi-minimal-dispatch alignment release: one vocabulary, one entry, one

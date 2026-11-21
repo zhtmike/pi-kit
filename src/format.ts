@@ -45,41 +45,8 @@ export function approveNextHint(): string {
 
 // --- footer labels -------------------------------------------------------------------------
 
-/** Cap a footer part's reason — one line, never a wall over the statusbar. */
-function capLabel(text: string, max = 80): string {
-	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
-}
-
-export function claimLabel(sid: string): string {
-	return `checkout ours (${sid === "" ? "?" : sid.slice(0, 8)})`;
-}
-
-export function claimPendingLabel(sid: string): string {
-	return `checkout: ${sid === "" ? "?" : sid.slice(0, 8)} (stamp on next gated op)`;
-}
-
-export function claimBlockedLabel(reason: string): string {
-	return `checkout blocked: ${capLabel(reason.replace(/\s+/g, " "))}`;
-}
-
 export function gateApprovedLabel(actions: string[]): string {
 	return `approved: ${actions.join(", ")}`;
-}
-
-export function gateStandingLabel(shape: string): string {
-	return `standing allow: ${shape}`;
-}
-
-export function gateSessionLabel(shape: string): string {
-	return `session approval covers ${shape}`;
-}
-
-export function gateCommittedLabel(sha: string, source: string): string {
-	return `committed ${sha.slice(0, 8)} (${source})`;
-}
-
-export function waitLabel(what: string): string {
-	return `waiting on person: ${what}`;
 }
 
 /** Dialog-safe command preview — one line, capped; never a wall of text over the TUI. */
@@ -122,8 +89,10 @@ export function dialogRefusedReason(cmd: string): string {
 	return `refused in dialog: ${cmd}`;
 }
 
+/** The appendEntry failure — surfaced at the point of failure (approve error, result annotation), one line, capped. */
 export function approvalRecordFailedReason(err: string): string {
-	return `approval record failed: ${err} — the op is NOT covered (fail closed)`;
+	const one = err.replace(/\s+/g, " ");
+	return `approval record failed: ${one.length > 120 ? `${one.slice(0, 119)}…` : one}`;
 }
 
 // --- dialog bodies ----------------------------------------------------------------------------
@@ -138,18 +107,6 @@ export function destructiveDialogBody(cmd: string): string {
 
 export function commitDialogTitle(): string {
 	return "pi-kit: commit the staged diff?";
-}
-
-export function missingBindDialogTitle(): string {
-	return "Commit without a recorded review?";
-}
-
-export function missingBindDialogBody(): string {
-	return (
-		"No independent review of this exact final diff is on record — usually because the diff changed after the reviewer ran.\n\n" +
-		"Confirm ONLY if you personally read the final diff just now and stand behind it.\n\n" +
-		"Otherwise choose Cancel: the agent dispatches a reviewer lane that records the review (bind), then retries this commit."
-	);
 }
 
 export const DIALOG_CHOICES_ONCE_REFUSE = ["Approve once", "Refuse"] as const;
@@ -211,14 +168,13 @@ export function nothingStagedReason(): string {
 	return "nothing staged — stage the diff with git add, then call commit (it commits the index, hooks on)";
 }
 
-export function bindUnboundTuiReason(): string {
+/** commit's unbound refusal — one reason for every mode: the reviewer lane re-reviews until the tree converges. */
+export function bindUnboundReason(): string {
 	return (
-		"refused: the staged tree is unbound. Run commit-gate's fresh review: dispatch ONE read-only reviewer lane with the review task in its brief and bind in its tools — the lane binds the tree it reviewed; then re-call commit — or have the user approve commit, which pre-approves and waives the bind."
+		"refused: the staged tree is unbound — no fresh review of this exact diff is on record. " +
+		"Dispatch ONE read-only reviewer lane with the review task in its brief and bind in its tools (the lane binds the tree it reviewed), then re-call commit; " +
+		"re-review after any further edits until the staged tree matches the bound tree."
 	);
-}
-
-export function bindUnboundHeadlessReason(): string {
-	return "refused: the staged tree is unbound and headless runs cannot confirm. Dispatch a reviewer lane (commit-gate's flow) with bind in its tools, then re-call commit.";
 }
 
 export function commitUnapprovedHeadlessReason(): string {

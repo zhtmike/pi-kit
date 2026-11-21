@@ -2,19 +2,16 @@ import assert from "node:assert/strict";
 import {
 	approveBody,
 	approveNextHint,
+	approvalRecordFailedReason,
 	bindBody,
+	bindUnboundReason,
 	bindPostNextHint,
 	bindTreeNextHint,
-	claimBlockedLabel,
-	claimLabel,
-	claimPendingLabel,
 	commitBody,
 	commitNextHint,
 	draftBody,
 	draftNextHint,
 	gateApprovedLabel,
-	gateCommittedLabel,
-	gateStandingLabel,
 	previewCommand,
 	uncoveredReason,
 	worktreeNextHint,
@@ -52,14 +49,11 @@ t("commit body names approval, bind spend, hooks, stat, message — in that orde
 	assert.equal(order.every((i) => i >= 0), true);
 });
 
-t("footer labels: claim parts, gate parts, and the 80-char cap", () => {
-	assert.equal(claimLabel("01a1fe05-a83a"), "checkout ours (01a1fe05)");
-	assert.equal(claimLabel(""), "checkout ours (?)");
-	assert.equal(claimPendingLabel("sid123456"), "checkout: sid12345 (stamp on next gated op)");
-	assert.equal(claimBlockedLabel("x".repeat(200)), `checkout blocked: ${"x".repeat(79)}…`);
+t("footer label and the record-failure message", () => {
 	assert.equal(gateApprovedLabel(["commit", "pr"]), "approved: commit, pr");
-	assert.equal(gateStandingLabel("git push"), "standing allow: git push");
-	assert.equal(gateCommittedLabel("deadbeef", "dialog"), "committed deadbeef (dialog)");
+	assert.equal(approvalRecordFailedReason("short err"), "approval record failed: short err");
+	assert.equal(approvalRecordFailedReason("x".repeat(200)), `approval record failed: ${"x".repeat(119)}…`);
+	assert.equal(approvalRecordFailedReason("line\nbreaks   collapse"), "approval record failed: line breaks collapse");
 });
 
 t("dialog preview collapses whitespace and caps at 160", () => {
@@ -73,6 +67,13 @@ t("the uncovered refusal names the command and the three coverage channels", () 
 	const r = uncoveredReason("git push origin", "");
 	assert.match(r, /^not covered: git push origin\./);
 	assert.match(r, /standing allow, a session approval, or the interactive dialog/);
+});
+
+t("the unbound refusal names the reviewer-lane convergence loop", () => {
+	const r = bindUnboundReason();
+	assert.match(r, /^refused: the staged tree is unbound/);
+	assert.match(r, /reviewer lane with the review task in its brief and bind in its tools/);
+	assert.match(r, /re-review after any further edits until the staged tree matches the bound tree/);
 });
 
 process.exit(failures === 0 ? 0 : 1);
