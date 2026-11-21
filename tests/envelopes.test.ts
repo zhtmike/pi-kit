@@ -88,6 +88,13 @@ t("template heading match is line-exact, not substring", () => {
 	const out = checkDraft("## Whatever changed\n\nx", "agent; human", template, id);
 	assert.deepEqual(out.templateMissing, ["## What"]); // '## Whatever changed' must not satisfy '## What'
 });
+t("a template with its own AI section: unfilled refuses naming it; filled passes with nothing appended", () => {
+	const template = "## What\n\n## AI assistance\n";
+	assert.throws(() => checkDraft("## What\nx", undefined, template, id), /template pins its own disclosure/);
+	const filled = checkDraft("## What\nx\n\n## AI assistance\nhuman reviewed everything", undefined, template, id);
+	assert.equal(filled.body, "## What\nx\n\n## AI assistance\nhuman reviewed everything"); // no append on top
+	assert.deepEqual(filled.templateMissing, []);
+});
 t("template headings parse and skip the AI-assistance heading", () => {
 	assert.deepEqual(templateHeadings("## A\nprose\n### B\n## AI assistance\n"), ["## A", "### B"]);
 });

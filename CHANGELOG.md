@@ -12,7 +12,7 @@ dependencies beyond the pi host.
   `checkout` tool (status/claim/worktree/clean), and the tracked-edit floor
   that resolves targets through symlinks and consults the tier classifier
   for bash shapes.
-- **git-api** — the git/gh approval boundary: the tier table (allow / ask /
+- **git-api** — the git/gh approval boundary (session approvals are the agent's judgment recorded through `approve` — no phrase matcher): the tier table (allow / ask /
   destructive / refuse / self-match, per-segment most-restrictive-wins),
   `git_commit` (hooks on, identity trailers, review-bind spend, log
   verification), `review_bind` (tree/post rows, thinking floor), session

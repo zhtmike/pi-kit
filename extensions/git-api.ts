@@ -5,9 +5,9 @@
  * The bash floor classifies git/gh/pkill shapes into the tier table
  * (docs/api.md): refuse shapes block naming the API tool; ask-tier shapes
  * need coverage (standing allow, session approval, or dialog); destructive
- * shapes dialog approve-once/refuse only. Session approvals record from the
- * TUI typing channel only (mode+source+no-child-markers) and survive
- * compaction via session entries.
+ * shapes dialog approve-once/refuse only. Session approvals are the agent's
+ * judgment recorded through `approve` (TUI channel only, no-child-markers,
+ * quoted source), surviving compaction via session entries.
  */
 
 import * as fs from "node:fs";
@@ -16,7 +16,7 @@ import { Type } from "typebox";
 import { defineTool, isToolCallEventType, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig, standingCovers, type AskShape, type PiKitConfig } from "../src/config.ts";
 import { classifyCommand, type Classification } from "../src/classify.ts";
-import { foldEntry, parseApproval, type ApprovalAction } from "../src/approvals.ts";
+import { ALL_ACTIONS, foldEntry, isApprovalAction, type ApprovalAction } from "../src/approvals.ts";
 import { identityFrom, trailerLines } from "../src/identity.ts";
 import { findBind, recordBinds, sha256File, spendBind } from "../src/binds.ts";
 import { ensureClaimAt, selfOf } from "../src/claimrun.ts";
@@ -39,8 +39,8 @@ export default function (pi: ExtensionAPI) {
 	// --- session approvals  ------------------------------------------------------------
 
 	let grants = new Set<ApprovalAction>();
-	let misses: string[] = [];
 	let recordFailure: string | undefined;
+	const grantSources = new Map<ApprovalAction, string>(); // action → quoted user text (the audit trail)
 	const allowedVia = new Map<string, string>(); // toolCallId → approval source (headless result annotation)
 
 	const childMarker = (): boolean =>
@@ -49,10 +49,11 @@ export default function (pi: ExtensionAPI) {
 	const humanChannel = (mode: string, source: string | undefined): boolean =>
 		mode === "tui" && source === "interactive" && !childMarker();
 
-	function recordEntry(data: { granted?: ApprovalAction[]; cleared?: boolean }): boolean {
+	function recordEntry(data: { granted?: ApprovalAction[]; cleared?: boolean }, source?: string): boolean {
 		try {
 			pi.appendEntry(APPROVAL_ENTRY, data);
 			recordFailure = undefined;
+			if (source !== undefined) for (const a of data.granted ?? []) grantSources.set(a, source);
 			return true;
 		} catch (e) {
 			recordFailure = `approval record failed: ${(e as Error).message} — the op is NOT covered (fail closed)`;
@@ -62,26 +63,17 @@ export default function (pi: ExtensionAPI) {
 
 	function approvalFooter(): void {
 		const parts: string[] = [];
-		if (grants.size > 0) parts.push(`approved: ${[...grants].join(", ")}`);
-		if (misses.length > 0) parts.push(`parse miss: ${misses[misses.length - 1]}`);
+		if (grants.size > 0) {
+			const quoted = [...grants].map((a) => (grantSources.has(a) ? `${a} ("${grantSources.get(a)}")` : a)).join(", ");
+			parts.push(`approved: ${quoted}`);
+		}
 		if (recordFailure !== undefined) parts.push(recordFailure);
 		setStatusPart("gate", parts.length > 0 ? parts.join(" · ") : undefined);
 	}
 
-	pi.on("input", async (event, ctx) => {
-		if (!humanChannel(ctx.mode, event.source)) return { action: "continue" };
-		const p = parseApproval(event.text);
-		if (p.grants.length > 0) {
-			if (recordEntry({ granted: p.grants })) {
-				for (const a of p.grants) grants.add(a);
-			}
-		} else if (p.miss) {
-			misses.push(event.text.length > 60 ? `${event.text.slice(0, 57)}…` : event.text);
-			if (misses.length > 5) misses = misses.slice(-5);
-		}
-		approvalFooter();
-		return { action: "continue" };
-	});
+	// Recognition is the session agent's judgment — the `approve` tool records
+	// what it judged granted (TUI-channel only); no phrase matcher runs on input.
+	pi.on("input", async () => ({ action: "continue" }));
 
 	pi.on("session_start", (event, ctx) => {
 		bindStatusSink((line) => ctx.ui.setStatus("pi-kit", line));
@@ -151,14 +143,13 @@ export default function (pi: ExtensionAPI) {
 			if (ctx.hasUI) {
 				setStatusPart("wait", `waiting on person: ${c.shape}`);
 				const options = action !== undefined ? ["Approve once", "Approve for this session", "Refuse"] : ["Approve once", "Refuse"];
-				const missLine = misses.length > 0 ? `last approval parse miss: "${misses[misses.length - 1]}" — did you mean one of its verbs?` : "";
 				try {
-				const choice = await ctx.ui.select([`pi-kit gate: ${c.tier}`, event.input.command, ...(c.reason ?? "").split("\n"), missLine].filter((l) => l !== "").join("\n"), options);
+				const choice = await ctx.ui.select([`pi-kit gate: ${c.tier}`, event.input.command, ...(c.reason ?? "").split("\n")].filter((l) => l !== "").join("\n"), options);
 				setStatusPart("wait", undefined);
 				if (choice === undefined || choice === "Refuse") {
 					return { block: true, reason: `refused in dialog: ${event.input.command}` };
 				}
-				if (action !== undefined && choice === "Approve for this session" && recordEntry({ granted: [action] })) {
+				if (action !== undefined && choice === "Approve for this session" && recordEntry({ granted: [action] }, "dialog")) {
 					grants.add(action);
 					approvalFooter();
 				}
@@ -221,6 +212,40 @@ export default function (pi: ExtensionAPI) {
 		allowedVia.delete(event.toolCallId);
 		return { content: [...event.content, { type: "text" as const, text: `\n[pi-kit: allowed via ${source}]` }] };
 	});
+
+	// --- approve: the agent judges, the tool records -----------------------------------------
+
+	const approveTool = defineTool({
+		name: "approve",
+		label: "Record a session approval",
+		description:
+			"Record that the user approved the named gated actions for this session — call it when their TUI message grants them (your judgment: a directive or an approval of the session/gate/verbs; hedges, negations, and questions are not approvals). " +
+			"Coverable actions: commit, push (owner-checked), pr_create, pr_edit. `source` quotes the user's words — the audit trail the footer shows. " +
+			"Refuse-tier and destructive shapes are never coverable; grants last until quit.",
+		parameters: Type.Object({
+			actions: Type.Array(stringEnum(ALL_ACTIONS as unknown as readonly string[], { description: "The actions the user approved" })),
+			source: Type.String({ description: "Short quote of the user's approving words (shows on the footer)" }),
+		}),
+
+		async execute(_id, params, _signal, _onUpdate, ctx) {
+			if (ctx.mode !== "tui" || childMarker()) {
+				throw new Error("approve records only in the owner's TUI session — lanes and headless runs never self-approve (their channel is standingAllows)");
+			}
+			if (params.actions.length === 0) throw new Error(`actions is empty — name at least one of: ${ALL_ACTIONS.join(", ")}`);
+			const actions: ApprovalAction[] = [];
+			for (const a of params.actions) {
+				if (!isApprovalAction(a)) throw new Error(`'${a}' is not a coverable action — valid: ${ALL_ACTIONS.join(", ")}`);
+				actions.push(a);
+			}
+			if (params.source.trim() === "") throw new Error("source quotes the user's approving words — an unquoted grant has no audit trail");
+			if (recordEntry({ granted: actions }, params.source.trim().slice(0, 120))) {
+				for (const a of actions) grants.add(a);
+			}
+			approvalFooter();
+			return ok(`recorded: ${actions.join(", ")} approved for this session ("${params.source.trim().slice(0, 120)}") — ask-tier coverage until quit; refuse/destructive shapes stay barred.`);
+		},
+	});
+	pi.registerTool(approveTool);
 
 	// --- review_bind -------------------------------------------------------------------------
 
@@ -332,7 +357,7 @@ export default function (pi: ExtensionAPI) {
 				const choice = await ctx.ui.select(["git_commit: commit the staged diff?", stat.stdout.trim(), "", message].join("\n"), ["Approve once", "Approve for this session", "Refuse"]);
 				setStatusPart("wait", undefined);
 				if (choice === undefined || choice === "Refuse") throw new Error("commit refused in dialog");
-				if (choice === "Approve for this session" && recordEntry({ granted: ["commit"] })) {
+				if (choice === "Approve for this session" && recordEntry({ granted: ["commit"] }, "dialog")) {
 					grants.add("commit");
 					approvalFooter();
 				}

@@ -25,6 +25,7 @@ const TEMPLATE_CANDIDATES = [
 	"pull_request_template.md",
 	"docs/PULL_REQUEST_TEMPLATE.md",
 ];
+const TEMPLATE_DIRS = [".github/PULL_REQUEST_TEMPLATE", ".github/pull_request_template", "PULL_REQUEST_TEMPLATE"];
 
 export default function (pi: ExtensionAPI) {
 	let cfg: PiKitConfig;
@@ -43,7 +44,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Draft the PR body",
 		description:
 			"Write/overwrite pr_<branch-slug>.md in the project root — the paste-ready PR body. " +
-			"Compose the body yourself (fill the repo's PR template when one exists); the tool checks template coverage, appends the AI-assistance section from `assistance` when the body carries none, and returns the body plus a locally-derived compare URL and the landed base..head commits (for body-sync). " +
+			"Compose the body filling the repo's PR template when one exists (single file or template directory, any heading level); the tool checks heading coverage line-exact, appends the AI-assistance section from `assistance` when neither the body nor the template carries one, and returns the body plus a locally-derived compare URL and the landed base..head commits (for body-sync). " +
 			"No posting, no network.",
 		parameters: Type.Object({
 			body: Type.String({ description: "The PR body you composed (what/why, root cause, tests+results, disclosures)" }),
@@ -114,11 +115,11 @@ export default function (pi: ExtensionAPI) {
 		name: "review_text",
 		label: "Review text",
 		description:
-			"Return paste-ready review-surface texts in the tool result — no posting, no dialog. " +
+			"Return paste-ready review texts in the tool result — a review is one summary call plus one comment call per thread, and one reply call per answered thread; no posting, no dialog. " +
 			"kind comment: one imperative ask with a file:line anchor, at most one fact. " +
-			"kind reply: the answered finding opens as a > blockquote, then 'Addressed in <commit>:' or 'Skipped, with reasoning:', answers below. " +
-			"kind summary: the review body in blocks (verdict / findings / coverage), closed with the AI-assistance footer. " +
-			"The tool appends the marker (reply/summary); it refuses text it cannot mark or attribute.",
+			"kind reply: the answered finding opens as a > blockquote, then 'Addressed in <commit>:' or 'Skipped, with reasoning:', answers below; each reply carries its own small-print marker. " +
+			"kind summary: the review body in blocks (verdict / findings / coverage; code the repo does not carry may ride as fenced blocks), closed with the AI-assistance footer. " +
+			"The tool refuses text it cannot mark or attribute.",
 		parameters: Type.Object({
 			kind: stringEnum(["comment", "reply", "summary"] as const, { description: "Which review surface" }),
 			file: Type.Optional(Type.String({ description: "kind comment: the file the anchor names" })),
@@ -186,6 +187,13 @@ export default function (pi: ExtensionAPI) {
 		for (const rel of TEMPLATE_CANDIDATES) {
 			const p = path.join(root, rel);
 			if (fs.existsSync(p)) return { path: rel, text: fs.readFileSync(p, "utf8") };
+		}
+		for (const dir of TEMPLATE_DIRS) {
+			const d = path.join(root, dir);
+			if (!fs.existsSync(d) || !fs.statSync(d).isDirectory()) continue;
+			const files = fs.readdirSync(d).filter((f) => f.endsWith(".md")).sort();
+			const pick = files.includes("default.md") ? "default.md" : files[0];
+			if (pick !== undefined) return { path: `${dir}/${pick}`, text: fs.readFileSync(path.join(d, pick), "utf8") };
 		}
 		return undefined;
 	}

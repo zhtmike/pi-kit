@@ -88,12 +88,23 @@ export function templateHeadings(template: string): string[] {
 
 export function checkDraft(body: string, assistance: string | undefined, template: string | undefined, id: Identity): DraftCheck {
 	let out = body.replace(/\s+$/, "");
+	// A repo template may carry its own AI/assistance section — when it does,
+	// the body MUST fill it (that section is the disclosure) and nothing is
+	// appended on top; when it does not, the tool appends its own section.
+	const templateOwnsDisclosure = template !== undefined && ASSISTANCE_HEADING_RE.test(template);
 	if (template !== undefined && template.trim() !== "") {
 		const bodyLines = new Set(out.split("\n").map((l) => l.trim()));
 		const missing = templateHeadings(template).filter((h) => !bodyLines.has(h));
 		if (missing.length > 0) {
 			return { body: out, templateMissing: missing };
 		}
+	}
+	if (templateOwnsDisclosure) {
+		if (!ASSISTANCE_HEADING_RE.test(out)) {
+			const heading = (template ?? "").split("\n").find((l) => ASSISTANCE_HEADING_RE.test(l))?.trim() ?? "the template's AI-assistance section";
+			throw new Error(`the PR template pins its own disclosure (${heading}) — fill that section in the body; nothing is appended on top of a template that carries one`);
+		}
+		return { body: out, templateMissing: [] };
 	}
 	if (!ASSISTANCE_HEADING_RE.test(out)) {
 		if (assistance === undefined || assistance.trim() === "") {

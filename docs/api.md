@@ -1,7 +1,7 @@
 # pi-kit API reference
 
 Personal hard-boundary tools for the [pi](https://pi.dev) coding agent. Three
-extensions, five tools, two floors. Git-installed:
+extensions, six tools, two floors. Git-installed:
 
 ```
 pi install git:github.com/zhtmike/pi-kit
@@ -103,30 +103,24 @@ result names the approval); uncovered ones and every destructive shape block
 
 ### Session approvals
 
-The TUI typing channel — `ctx.mode === "tui"` **and** input source
-`interactive` **and** no child markers (`PI_MINIMAL_DISPATCH_CHILD`,
-`NIGHTWATCH_*`) — records grants that survive compaction (session entries),
-replay in file order, and end at quit (a fork starts empty; a resume keeps
-the resumed session's set). Recognition is spelling-robust, not
-phrase-frozen: a directive gated verb ("push", "please commit", "feel free
-to open a PR") grants; an approval signal (approved / OK'd / confirmed /
-green-light / "go ahead" / "ship it" / LGTM) makes verbs named in the same
-message count. Guards: a verb or signal governed by not/n't/never/"hold
-off" inside its own clause never counts (negation does not cross a clause
-boundary — "Do not push, just commit" keeps `commit` grantable);
-noun-governed verbs ("the previous commit") never count; past-tense
-narration ("we pushed the hotfix") is not a verb form; hedges ("maybe",
-"should we", "later" on either side of the verb) do not grant. Residual,
-deliberate: a message-initial compound noun ("Commit message needs work")
-can read as a directive — coverage is bounded to ask-tier actions, every
-grant shows on the footer, and the dialog is the backstop.
-Coverable actions: `commit`, `push` (owner-checked), `pr create`, `pr edit`.
-A named commit or push covers every later matching op until quit — new
-files, public signatures, new dependencies, >50 lines included; the
-fresh-review bind still runs per diff. Parse misses are visible on the
-footer and the next ask quotes them — never a silent grant. Dialog
-"for-this-session" clicks use the same record. Nothing else records: lanes,
-night-watch children, `rpc`/`extension` sources, print/json modes.
+Recognition is the **session agent's judgment, not a hard-coded grammar**.
+When the user's TUI message grants gated actions — a directive ("push it"),
+an approval of named verbs, or a blanket approval of the session/gate ("I
+have approved the gate", "I have human approved the session") — the agent
+calls `approve` with the actions it judged granted and a short quote of the
+user's words. Hedges, negations, and questions are not approvals; the agent
+decides, and the record is the audit trail.
+
+**Tool `approve`** — params: `actions` (from `commit`, `push`, `pr_create`,
+`pr_edit`), `source` (the quoted approving words). Records only in the
+owner's TUI session (mode `tui`, no child markers — lanes and headless runs
+never self-approve; their channel is `standingAllows`). Grants last until
+quit, survive compaction (session entries), replay in file order, and show
+on the footer with their source quote. Dialog "for-this-session" clicks use
+the same record. A named `commit` or `push` covers every later matching op
+until quit — new files, public signatures, new dependencies, >50 lines
+included; the fresh-review bind still runs per diff. `push` stays
+owner-checked; refuse-tier and destructive shapes are never coverable.
 
 ### Tool `review_bind`
 
@@ -172,11 +166,14 @@ Writes/overwrites `pr_<branch-slug>.md` in the project root. Inputs:
 `assistance` (what the agent did, what the human reviewed and stands behind —
 appended as the `## AI assistance` section when the body carries none; a
 body with no section and no param refuses), optional `base`/`head` (defaults:
-remote HEAD branch / current branch). Where a PR template exists
-(`.github/PULL_REQUEST_TEMPLATE.md`, `PULL_REQUEST_TEMPLATE.md`,
-`docs/PULL_REQUEST_TEMPLATE.md` — first match, either case) it is the
-envelope — the body must carry the template's headings (line-exact) or the
-call refuses naming them. Returns the path, the full body, a locally
+remote HEAD branch / current branch). Where a PR template exists it is the
+envelope — a single file (`.github/PULL_REQUEST_TEMPLATE.md`,
+`PULL_REQUEST_TEMPLATE.md`, `docs/PULL_REQUEST_TEMPLATE.md`, either case) or
+a template directory (`.github/PULL_REQUEST_TEMPLATE/` — `default.md`, else
+the first `.md`) — the body must carry the template's headings (any level,
+line-exact) or the call refuses naming them. A template that carries its own
+AI/assistance section makes filling that section the disclosure: nothing is
+appended. Returns the path, the full body, a locally
 derived compare URL (`https://github.com/<owner>/<repo>/compare/<base>...<head>`),
 and the landed base..head commits for body-sync. An unparseable remote is a
 loud error naming the manual path. Overwrite is the update path after new
