@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.2 — 2026-11-22
+
+Cross-repo sessions: `bind` and `commit` take `targetDir`.
+
+- **The defect** — a session rooted in one repo that staged work in
+  another (skills fix from a harness-setup session) hit walls in sequence:
+  the bash `git commit` refusal points at the `commit` tool, but `commit`
+  and `bind` resolved only the session cwd — "nothing staged" in the
+  session's repo, no path to the staged one. The claim floor and the
+  git/gh bash floor were already per-target (`targetDir` from classified
+  commands); the gated tools were the gap.
+- **The fix** — both tools take optional `targetDir` (default: the
+  session's cwd), expanded as the shell would with a loud block on
+  unexpanded residue, exactly the bash floor's vocabulary. `commit`
+  ensures the claim in that repo, so the one-editor guarantee rides the
+  retarget; `bind` records the row in that repo's `.pi/REVIEW_BINDS.json`.
+  Proven end-to-end headless: a bind called with a scratch repo's
+  `targetDir` from an unrelated cwd landed the row in the scratch repo's
+  `.pi/`, the session repo's binds file untouched.
+- `draft` stays cwd-bound (PR scaffolding for the session's own repo);
+  `checkout` stays the session-tree tool — cross-repo edits already claim
+  per-target through the edit floor.
+
 ## 0.3.1 — 2026-11-21
 
 The TUI audit release: every surface states one thing, in the place it

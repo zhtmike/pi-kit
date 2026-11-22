@@ -161,7 +161,9 @@ owner-checked; refuse-tier shapes are never coverable, destructive shapes never 
 
 Records that a fresh review ran — the record `commit` (kind `tree`) and gh
 posts (kind `post`) spend. Params: `kind` (`tree`/`post`), `path` (post
-only). The row carries the **caller's** session id; the spender's own sid
+only), `targetDir` (optional: operate on the repo containing this path —
+default: the session's cwd; cross-repo sessions bind the tree they reviewed).
+The row carries the **caller's** session id; the spender's own sid
 never counts. Refuses at thinking `off`/`minimal`/`low` — a low-thinking
 binder reviews nothing. The payer: a reviewer lane dispatched by
 commit-gate with the review task in its brief and `bind` in its `tools`
@@ -181,7 +183,11 @@ the model's baseUrl — unverifiable segments drop), caller trailers ride
 along. It does **not** run the fresh review — `commit-gate` still does,
 before this tool is called; its reviewer lane uses the fast read-only
 model at high thinking (the judgment model at maximum thinking only for
-design-grade artifacts, unsettleable reads, or blocking findings). Gates,
+design-grade artifacts, unsettleable reads, or blocking findings). Params:
+`subject`, `body` (optional), `trailers` (optional), `targetDir` (optional:
+operate on the repo containing this path — default: the session's cwd; the
+claim is ensured in that repo, so a cross-repo session lands where it
+staged). Gates,
 in order: the checkout claim; a review bind for the staged tree (a
 pre-approved commit — standing allow or session grant — waives the missing
 bind; otherwise the refusal names the reviewer-lane loop: dispatch a

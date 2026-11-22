@@ -86,6 +86,13 @@ export default function (pi: ExtensionAPI) {
 		const ex = expandShellPath(raw, homedir(), process.env);
 		return UNEXPANDED_RE.test(ex) ? null : path.resolve(ex);
 	};
+	/** A gated tool call's repo: targetDir when given (expanded, or a loud block), else the session cwd. */
+	const targetOrCwd = (raw: string | undefined, fallback: string): string => {
+		if (raw === undefined) return fallback;
+		const t = resolveTarget(raw);
+		if (t === null) throw new Error(F.unexpandedTargetReason(raw));
+		return t;
+	};
 	let root: string | null = null; // this process's tree, resolved lazily
 
 	const treeOf = async (dir: string): Promise<string | null> => {
@@ -419,6 +426,7 @@ export default function (pi: ExtensionAPI) {
 		parameters: Type.Object({
 			kind: stringEnum(["tree", "post"] as const, { description: "tree: the staged index (git write-tree); post: a to-be-posted text file" }),
 			path: Type.Optional(Type.String({ description: "kind post only: the file whose sha256 is bound (the --body-file of the coming gh post)" })),
+			targetDir: Type.Optional(Type.String({ description: "Operate on the repo containing this path — default: the session's cwd; cross-repo sessions bind the tree they reviewed" })),
 		}),
 
 		async execute(_id, params, _signal, _onUpdate, ctx) {
@@ -428,8 +436,9 @@ export default function (pi: ExtensionAPI) {
 			}
 			const sid = ctx.sessionManager.getSessionId() ?? "";
 			if (sid === "") throw new Error("bind refuses an empty session id — the record must name the reviewing session");
-			const treeRoot = await gitRootOf(exec, ctx.cwd ?? process.cwd());
-			if (treeRoot === null) throw new Error(F.notInGitTreeReason(ctx.cwd ?? process.cwd()));
+			const startDir = targetOrCwd(params.targetDir, ctx.cwd ?? process.cwd());
+			const treeRoot = await gitRootOf(exec, startDir);
+			if (treeRoot === null) throw new Error(F.notInGitTreeReason(startDir));
 			if (!(await piDirIgnored(exec, treeRoot))) {
 				throw new Error(F.piNotIgnoredReason(treeRoot, "bind records are never created where 'git status' would show them"));
 			}
@@ -464,11 +473,12 @@ export default function (pi: ExtensionAPI) {
 			subject: Type.String({ description: "One-line subject (repo convention when one exists)" }),
 			body: Type.Optional(Type.String({ description: "Body: root-cause narrative with numbers, not a diff restatement" })),
 			trailers: Type.Optional(Type.Array(Type.String(), { description: "Extra trailer lines (a trailer the edited files' own rules require rides along, never dropped)" })),
+			targetDir: Type.Optional(Type.String({ description: "Operate on the repo containing this path — default: the session's cwd; the claim is ensured in that repo" })),
 		}),
 
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			const sid = ctx.sessionManager.getSessionId() ?? "";
-			const startDir = ctx.cwd ?? process.cwd();
+			const startDir = targetOrCwd(params.targetDir, ctx.cwd ?? process.cwd());
 			const treeRoot = await gitRootOf(exec, startDir);
 			if (treeRoot === null) throw new Error(F.notInGitTreeReason(startDir));
 			// The claim floor: a commit writes history in this tree — ensure the claim.
