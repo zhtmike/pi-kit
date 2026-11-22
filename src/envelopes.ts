@@ -12,8 +12,9 @@ import * as path from "node:path";
 // --- review -------------------------------------------------------------------------
 
 export interface CommentInput {
-	file: string;
-	line: number;
+	/** The anchor file — present only together with `line`; both absent is the anchorless issue-comment surface. */
+	file?: string;
+	line?: number;
 	ask: string;
 	fact?: string;
 }
@@ -32,6 +33,11 @@ export interface ReplyInput {
 }
 
 export function commentText(c: CommentInput): string {
+	if (c.line === undefined) {
+		if (c.file !== undefined) throw new Error("comment requires file and line together, or neither (anchorless — the issue-comment surface)");
+		return c.fact !== undefined && c.fact !== "" ? `${c.ask} — ${c.fact}` : c.ask;
+	}
+	if (c.file === undefined) throw new Error("comment requires file and line together, or neither (anchorless — the issue-comment surface)");
 	if (c.line < 1) throw new Error(`comment line must be a positive line number, got ${c.line}`);
 	const anchor = `${c.file}:${c.line}`;
 	return c.fact !== undefined && c.fact !== "" ? `${anchor}: ${c.ask} — ${c.fact}` : `${anchor}: ${c.ask}`;

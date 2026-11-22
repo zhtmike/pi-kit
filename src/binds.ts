@@ -107,8 +107,9 @@ export function spendBind(root: string, self: { pid: number; host: string; token
 }
 
 /**
- * Find an unspent row. `notSid` rejects the committer's own rows — a bind
- * must come from a reviewing session, not the one spending it.
+ * Find an unspent row. Tree spends pass the spender's sid as `notSid` — a tree
+ * bind must come from a reviewing session, not the committer; post spends pass
+ * "" (a post row spends for its own composer too).
  */
 export function findBind(root: string, kind: BindRow["kind"], hash: string, notSid: string): BindRow | undefined {
 	return readBinds(root).rows.find((r) => r.kind === kind && r.hash === hash && r.sid !== "" && r.sid !== notSid);

@@ -204,7 +204,7 @@ function classifyGit(words: string[]): Classification {
 		const flags = args.filter((a) => a.startsWith("-"));
 		const force = flags.some((f) => f === "-f" || f === "--force" || f === "--force-with-lease" || f === "--force-if-includes" || f.startsWith("--force")) || args.includes("--delete") || args.includes("-d") || isForceRefspec(args);
 		if (force) {
-			return destructive("git push", target, "force/delete push forms are destructive-tier — approve-once dialog only, never covered by any approval.");
+			return destructive("git push", target, "force/delete push forms are destructive-tier — the dialog or a session destructive grant covers them.");
 		}
 		return { tier: "ask", shape: "git push", targetDir: target, pushArgs: args };
 	}

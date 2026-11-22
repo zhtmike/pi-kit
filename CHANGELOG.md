@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.4.0 — 2026-11-22
+
+The all-gates override, plus the four-repo cross-audit fixes.
+
+- **The all-gates override** — the owner approves gates wholesale ("I have
+  approved all gates") and expects that to mean every operation; the
+  `destructive` grant left the refuse rows barred, so "all gates" silently
+  wasn't. A session `destructive` grant now covers every shape past ask —
+  destructive rows, the refuse rows (bash `git commit`, gh state verbs,
+  review verdicts, non-owner pushes) — and waives a gh post's `--body-file`
+  bind the way a pre-approved commit already waived its tree bind. Standing
+  allows still top out at ask (config-time pre-approval never reaches
+  refuse), uncovered refuse reasons name the override
+  (`approve(actions: ["destructive"])`), and `selfmatch` stays outside —
+  it catches the agent killing its own shell, which no grant means.
+- **Draft's hint led into a wall** — `draftNextHint` pointed at
+  `gh pr create --body-file` with no bind step, so the hinted command hit
+  `postBindRefusal` on first attempt, every time. The hint names the bind
+  step; `review` results gain the same post-path hint (write → bind →
+  `--body-file`).
+- **Bind's sid prose was half wrong** — "the spender's own sid never
+  counts" is true of tree rows only; the post path has always accepted the
+  composer's row. Description, result body, docs, and the `binds.ts`
+  comment now scope it to kind `tree`.
+- **Smaller** — anchorless `review` comment (the issue-comment surface:
+  `file`/`line` optional but paired, `ask` required); `answers` marked
+  required; `commit`'s `[next:]` gains the `checkout clean` close-out;
+  description trims across checkout/approve/commit/review (~150 tokens per
+  request); the footgun set's rationale documented (`-M`/`-C`/`-f` are
+  recoverable force-spellings, `-D` drops unmerged commits);
+  `PI_MINIMAL_DISPATCH_CHILD` documented as a cross-package contract;
+  AGENTS.md states the non-goals.
+
 ## 0.3.3 — 2026-11-22
 
 Tests: the binds ledger gets its own characterization suite.

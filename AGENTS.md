@@ -11,7 +11,9 @@ scaffolds. It is git-installed (`pi install git:github.com/zhtmike/pi-kit`),
 never published to npm. Read [docs/api.md](docs/api.md) first — it is the
 user-facing contract; tool schemas are the model-facing half of the same
 contract. When code and docs disagree, that is a bug in one of them; fix the
-disagreement, not just the code.
+disagreement, not just the code. Non-goals (docs/api.md): no judgment
+gating, no MCP, no network at runtime, no cross-harness portability, no
+publish.
 
 Surface discipline: the settled tools are the whole surface — `checkout`,
 `approve`, `commit`, `bind`, `draft`, `review`; no slash commands, no

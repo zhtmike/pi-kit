@@ -48,3 +48,12 @@ export function foldEntry(set: Set<ApprovalAction>, e: ApprovalEntry): Set<Appro
 	for (const a of e.granted ?? []) set.add(a);
 	return set;
 }
+
+/**
+ * The coarse all-gates override: a session `destructive` grant covers every shape
+ * past ask — destructive and refuse rows alike, non-owner pushes included. Standing
+ * allows never reach it (config-time pre-approval tops out at ask).
+ */
+export function refuseCovered(grants: Set<ApprovalAction>): boolean {
+	return grants.has("destructive");
+}

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ALL_ACTIONS, actionOfShape, foldEntry, isApprovalAction } from "../src/approvals.ts";
+import { ALL_ACTIONS, actionOfShape, foldEntry, isApprovalAction, refuseCovered } from "../src/approvals.ts";
 
 let failures = 0;
 const t = (name: string, fn: () => void) => {
@@ -38,6 +38,13 @@ t("fold: grants accumulate in file order; a clear terminates what precedes it", 
 	assert.deepEqual([...s], []);
 	s = foldEntry(s, { granted: ["pr"] });
 	assert.deepEqual([...s], ["pr"]);
+});
+
+t("refuseCovered: only the coarse destructive grant covers the refuse rows", () => {
+	assert.equal(refuseCovered(new Set()), false);
+	assert.equal(refuseCovered(new Set(["commit", "push", "pr", "comment", "tag", "release"])), false);
+	assert.equal(refuseCovered(new Set(["destructive"])), true);
+	assert.equal(refuseCovered(new Set(["push", "destructive"])), true);
 });
 
 process.exit(failures === 0 ? 0 : 1);

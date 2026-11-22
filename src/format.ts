@@ -23,14 +23,19 @@ export function bindPostNextHint(): string {
 	return nextHint("post with --body-file <the bound file> — the file must not change in between");
 }
 
-/** commit → the review-surface follow-ups. */
+/** commit → the review-surface follow-ups and the session close-out. */
 export function commitNextHint(): string {
-	return nextHint("push when ready (git push is owner-checked); draft writes the PR body from the landed commits");
+	return nextHint("push when ready (git push is owner-checked); draft writes the PR body from the landed commits; checkout (action clean) clears this session's scratch once the work ships");
 }
 
-/** draft → the post that carries the body file. */
+/** draft → the bind that keys the post, then the post itself. */
 export function draftNextHint(): string {
-	return nextHint("gh pr create --body-file <the draft file> — ask-tier (a pr grant or the dialog covers it)");
+	return nextHint("bind (kind post, path <the draft file>) once the text is final, then gh pr create --body-file <the file> — ask-tier (a pr grant or the dialog covers it)");
+}
+
+/** review → the write/bind/post path that carries the returned text. */
+export function reviewNextHint(): string {
+	return nextHint("to post — write the text to a file, bind (kind post, path <file>), then gh … --body-file <file>; inline --body is refused");
 }
 
 /** checkout worktree → work under the returned path. */
@@ -161,7 +166,7 @@ export function approveNotTuiReason(): string {
 }
 
 export function bindBody(kind: "tree" | "post", hash: string, sid: string): string {
-	return `bound ${kind} ${hash.slice(0, 12)} (session ${sid.slice(0, 8)}) — the commit/gh-post floors can spend it. Rows are hash-keyed; the spender's own sid never counts.\n${kind === "tree" ? bindTreeNextHint() : bindPostNextHint()}`;
+	return `bound ${kind} ${hash.slice(0, 12)} (session ${sid.slice(0, 8)}) — the commit/gh-post floors can spend it. Rows are hash-keyed; tree rows never count for the spender's own session.\n${kind === "tree" ? bindTreeNextHint() : bindPostNextHint()}`;
 }
 
 export function nothingStagedReason(): string {

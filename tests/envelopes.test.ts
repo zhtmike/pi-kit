@@ -28,6 +28,12 @@ t("comment: file:line anchor + one ask + at most one fact", () => {
 t("comment: a non-positive line refuses", () => {
 	assert.throws(() => commentText({ file: "a", line: 0, ask: "x" }), /positive line/);
 });
+t("comment: anchorless shape is the bare ask (fact joins unchanged); file/line must pair", () => {
+	assert.equal(commentText({ ask: "Rename the helper" }), "Rename the helper");
+	assert.equal(commentText({ ask: "Rename the helper", fact: "src/b.ts:10 does the same check" }), "Rename the helper — src/b.ts:10 does the same check");
+	assert.throws(() => commentText({ file: "a", ask: "x" }), /file and line together/);
+	assert.throws(() => commentText({ line: 3, ask: "x" }), /file and line together/);
+});
 
 // --- reply --------------------------------------------------------------------------------
 t("reply opens with the > quote, answers below the verdict opener, marker small", () => {

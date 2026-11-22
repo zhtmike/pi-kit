@@ -13,6 +13,7 @@ import {
 	draftNextHint,
 	gateApprovedLabel,
 	previewCommand,
+	reviewNextHint,
 	uncoveredReason,
 	worktreeNextHint,
 } from "../src/format.ts";
@@ -29,7 +30,7 @@ const t = (name: string, fn: () => void) => {
 };
 
 t("every hint is one bracketed [next: …] line naming a concrete step", () => {
-	for (const h of [bindTreeNextHint(), bindPostNextHint(), commitNextHint(), draftNextHint(), worktreeNextHint(), approveNextHint()]) {
+	for (const h of [bindTreeNextHint(), bindPostNextHint(), commitNextHint(), draftNextHint(), worktreeNextHint(), approveNextHint(), reviewNextHint()]) {
 		assert.match(h, /^\[next: [^\s][^\n]*\]$/);
 	}
 });
@@ -38,7 +39,8 @@ t("result bodies end with their chain hint", () => {
 	assert.match(bindBody("tree", "abcdef0123456789", "sid-1234"), /\n\[next: commit\(subject, body\) spends the row[^\n]*\]$/);
 	assert.match(bindBody("post", "abcdef0123456789", "sid-1234"), /\n\[next: post with --body-file[^\n]*\]$/);
 	assert.match(commitBody("sha1234567890", "dialog", "bind row (session abcd1234)", true, "", "stat", "msg"), /\n\[next: push when ready[^\n]*\]$/);
-	assert.match(draftBody("pr_x.md", "https://x", "main", "feat", "abc123 x", "body"), /\n\[next: gh pr create --body-file[^\n]*\]$/);
+	assert.match(commitNextHint(), /checkout \(action clean\) clears this session's scratch once the work ships\]$/);
+	assert.match(draftBody("pr_x.md", "https://x", "main", "feat", "abc123 x", "body"), /\n\[next: bind \(kind post, path <the draft file>\)[^\n]*gh pr create --body-file[^\n]*\]$/);
 	assert.match(approveBody(["commit", "push"], "push it"), /\n\[next: run the gated op[^\n]*\]$/);
 });
 
@@ -67,6 +69,12 @@ t("the uncovered refusal names the command and the three coverage channels", () 
 	const r = uncoveredReason("git push origin", "");
 	assert.match(r, /^not covered: git push origin\./);
 	assert.match(r, /standing allow, a session approval, or the interactive dialog/);
+});
+
+t("bind body scopes the own-sid rule to tree rows; review hint names the write→bind→post path", () => {
+	assert.match(bindBody("tree", "abcdef0123456789", "sid-1234"), /tree rows never count for the spender's own session/);
+	assert.equal(bindBody("post", "abcdef0123456789", "sid-1234").includes("own sid never counts"), false);
+	assert.match(reviewNextHint(), /write the text to a file, bind \(kind post, path <file>\), then gh … --body-file <file>; inline --body is refused/);
 });
 
 t("the unbound refusal names the reviewer-lane convergence loop", () => {

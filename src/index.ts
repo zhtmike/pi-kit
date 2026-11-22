@@ -17,7 +17,7 @@ import { defineTool, getMarkdownTheme, isToolCallEventType, type AgentToolResult
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { loadConfig, standingCovers, type PiKitConfig } from "./config.ts";
 import { classifyCommand } from "./classify.ts";
-import { ALL_ACTIONS, actionOfShape, foldEntry, isApprovalAction, type ApprovalAction } from "./approvals.ts";
+import { ALL_ACTIONS, actionOfShape, foldEntry, isApprovalAction, refuseCovered, type ApprovalAction } from "./approvals.ts";
 import { commitMessage, identityFrom } from "./identity.ts";
 import { findBind, recordBinds, sha256File, spendBind } from "./binds.ts";
 import { ensureClaimAt, selfOf } from "./claimrun.ts";
@@ -219,21 +219,30 @@ export default function (pi: ExtensionAPI) {
 		if (!isToolCallEventType("bash", event)) return;
 		const c = classifyCommand(event.input.command);
 		if (c.tier === "allow") return;
-		if (c.tier === "selfmatch" || c.tier === "refuse") return { block: true, reason: c.reason };
+		if (c.tier === "selfmatch") return { block: true, reason: c.reason };
+		if (c.tier === "refuse") {
+			// The coarse all-gates grant overrides the refuse rows — explicit owner say-so, quoted and until-quit.
+			if (refuseCovered(grants)) {
+				allowedVia.set(event.toolCallId, "session approval (destructive — refuse row)");
+				return;
+			}
+			return { block: true, reason: `${c.reason}\n[covered by a session destructive grant — approve(actions: ["destructive"])]` };
+		}
 
 		const dir = c.targetDir === undefined ? ctx.cwd ?? process.cwd() : resolveTarget(c.targetDir);
 		if (dir === null) return { block: true, reason: F.unexpandedTargetReason(c.targetDir!) };
 
 		if (c.tier === "ask") {
-			// gh posts bind first: --body-file must point at a bound file.
+			const coarse = refuseCovered(grants);
+			// gh posts bind first: --body-file must point at a bound file (a covered op waives the bind — commit's bind-waive precedent).
 			if (c.bodyFile !== undefined) {
 				if (UNEXPANDED_RE.test(expandShellPath(c.bodyFile, homedir(), process.env))) {
 					return { block: true, reason: `--body-file '${c.bodyFile}' did not fully expand (unset variable or unsupported form) — name the file absolutely` };
 				}
-				if (!(await checkPostBind(dir, c.bodyFile))) return { block: true, reason: F.postBindRefusal(c.bodyFile) };
+				if (!coarse && !(await checkPostBind(dir, c.bodyFile))) return { block: true, reason: F.postBindRefusal(c.bodyFile) };
 			}
-			// push resolves an owner; non-owner and unparseable targets refuse without a dialog.
-			if (c.shape === "git push") {
+			// push resolves an owner; non-owner and unparseable targets refuse without a dialog (the coarse grant overrides).
+			if (c.shape === "git push" && !coarse) {
 				const t = await resolvePushTarget(exec, dir, c.pushArgs ?? []);
 				if (t.status === "error" || t.status === "unparseable") return { block: true, reason: `git push refused — ${t.note}` };
 				if (!t.github || !cfg.ownerLogins.map((l) => l.toLowerCase()).includes(t.ident.owner.toLowerCase())) {
@@ -241,7 +250,7 @@ export default function (pi: ExtensionAPI) {
 						block: true,
 						reason:
 							`git push refused — remote ${t.remote} resolves to ${t.ident.owner}/${t.ident.name} on ${t.ident.host}, and the owner is not in ownerLogins [${cfg.ownerLogins.join(", ") || "empty"}]. ` +
-							"Pushes go to owner-owned remotes only; ask the user to push, or extend ownerLogins in pi-kit.json.",
+							"Pushes go to owner-owned remotes only; ask the user to push, or extend ownerLogins in pi-kit.json.\n[covered by a session destructive grant — approve(actions: [\"destructive\"])]",
 					};
 				}
 			}
@@ -335,7 +344,7 @@ export default function (pi: ExtensionAPI) {
 			"Actions: status (stamp + owner liveness); claim (take the checkout; replaces only a dead owner); " +
 			"worktree (the blocked-session escape: returns an existing-or-new detached worktree at <root>/.pi/worktrees/<sid>); " +
 			"clean (delete exactly this session's .pi/work/s/<sid>/ scratch). " +
-			"Tracked-file edits under a live foreign claim block until you claim the tree or move to a worktree; there is no release action.",
+			"Tracked-file edits under a live foreign claim block until you claim the tree or move to a worktree.",
 		parameters: Type.Object({
 			action: stringEnum(["status", "claim", "worktree", "clean"] as const, { description: "What to do with the checkout claim" }),
 		}),
@@ -389,10 +398,9 @@ export default function (pi: ExtensionAPI) {
 		label: "Record a session approval",
 		description:
 			"Record that the user approved the named gated actions for this session — call it when their TUI message grants them (your judgment: a directive or an approval of the session/gate/verbs; hedges, negations, and questions are not approvals). " +
-			"Actions: commit, push, pr, comment, tag, release, destructive (the coarse grant covering every destructive shape). " +
-			"`source` quotes the user's words — the audit trail. Grants last until quit; refuse-tier shapes are never coverable; destructive is never standing-allowable.",
+			"Grants last until quit; the coarse `destructive` grant covers every shape past ask — destructive and refuse rows alike.",
 		parameters: Type.Object({
-			actions: Type.Array(stringEnum(ALL_ACTIONS as unknown as readonly string[], { description: "The actions the user approved" })),
+			actions: Type.Array(stringEnum(ALL_ACTIONS as unknown as readonly string[], { description: "The actions the user approved (`destructive` — the all-gates grant — covers every shape past ask, refuse rows included)" })),
 			source: Type.String({ description: "Short quote of the user's approving words (recorded in the session entry)" }),
 		}),
 
@@ -422,7 +430,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Bind a fresh review",
 		description:
 			"Record that a fresh review ran — the record commit (kind tree) and gh posts (kind post) spend. " +
-			"The caller's session id rides the row; the spender's own sid never counts. Refuses at thinking off/minimal/low — a low-thinking binder reviews nothing.",
+			"Tree rows never count for the spender's own session; post rows spend for any recorded binder. Refuses at thinking off/minimal/low — a low-thinking binder reviews nothing.",
 		parameters: Type.Object({
 			kind: stringEnum(["tree", "post"] as const, { description: "tree: the staged index (git write-tree); post: a to-be-posted text file" }),
 			path: Type.Optional(Type.String({ description: "kind post only: the file whose sha256 is bound (the --body-file of the coming gh post)" })),
@@ -466,9 +474,8 @@ export default function (pi: ExtensionAPI) {
 		name: "commit",
 		label: "Commit (gated)",
 		description:
-			"Commit the staged diff — hooks on, identity trailers injected, the review bind spent, the approval recorded. " +
-			"Needs a review bind for the staged tree (a pre-approved commit — standing allow or session grant — waives a missing bind), " +
-			"then an approval: standing allow, session approval, or dialog. Stage with git add first.",
+			"Commit the staged diff — hooks on, identity trailers injected, the review bind spent. " +
+			"Needs a review bind for the staged tree (a pre-approved commit — standing allow or session grant — waives a missing bind), then an approval. Stage with git add first.",
 		parameters: Type.Object({
 			subject: Type.String({ description: "One-line subject (repo convention when one exists)" }),
 			body: Type.Optional(Type.String({ description: "Body: root-cause narrative with numbers, not a diff restatement" })),
@@ -624,10 +631,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Review text",
 		description:
 			"Return paste-ready review texts in the tool result — one summary call plus one comment call per thread, plus one reply call per answered thread; no posting, no dialog. " +
-			"kind comment: one imperative ask with a file:line anchor, at most one fact. " +
-			"kind reply: the answered finding opens as a > blockquote, then 'Addressed in <commit>:' or 'Skipped, with reasoning:', answers below. " +
-			"kind summary: the review body in blocks (verdict / findings / coverage), closed with the AI-assistance footer. " +
-			"The tool refuses text it cannot mark or attribute.",
+			"A reply renders the `quote` as a > blockquote, then 'Addressed in <commit>:' or 'Skipped, with reasoning:'; the AI-assistance marker is appended.",
 		parameters: Type.Object({
 			kind: stringEnum(["comment", "reply", "summary"] as const, { description: "Which review surface" }),
 			file: Type.Optional(Type.String({ description: "kind comment: the file the anchor names" })),
@@ -636,7 +640,7 @@ export default function (pi: ExtensionAPI) {
 			fact: Type.Optional(Type.String({ description: "kind comment: at most one fact (a sibling path rides here)" })),
 			verdict: Type.Optional(stringEnum(["addressed", "skipped"] as const, { description: "kind reply: the verdict token" })),
 			quote: Type.Optional(Type.String({ description: "kind reply (required): the finding, request, or comment replied to — rendered at the top as a > blockquote" })),
-			answers: Type.Optional(Type.String({ description: "kind reply: the reply's own answer, below the verdict opener" })),
+			answers: Type.Optional(Type.String({ description: "kind reply (required): the reply's own answer, below the verdict opener" })),
 			commit: Type.Optional(Type.String({ description: "kind reply: the commit that addressed it (required for 'addressed')" })),
 			verification: Type.Optional(Type.String({ description: "kind reply: the verification behind the answer" })),
 			reason: Type.Optional(Type.String({ description: "kind reply: why it was skipped (required for 'skipped')" })),
@@ -648,8 +652,9 @@ export default function (pi: ExtensionAPI) {
 			if (identity.agent === "") throw new Error("no agent identity — pass agentName in pi-kit.json; the tool refuses unattributed text");
 			let text: string;
 			if (params.kind === "comment") {
-				if (params.file === undefined || params.line === undefined || params.ask === undefined) {
-					throw new Error("kind 'comment' requires file, line, and ask");
+				if (params.ask === undefined) throw new Error("kind 'comment' requires ask");
+				if ((params.file === undefined) !== (params.line === undefined)) {
+					throw new Error("kind 'comment' requires file and line together, or neither (anchorless — the issue-comment surface)");
 				}
 				text = commentText({ file: params.file, line: params.line, ask: params.ask, fact: params.fact });
 			} else if (params.kind === "reply") {
@@ -664,7 +669,7 @@ export default function (pi: ExtensionAPI) {
 				if (params.text === undefined) throw new Error("kind 'summary' requires text");
 				text = summaryText(params.text, identity);
 			}
-			return ok(text, { kind: params.kind, text });
+			return ok(`${text}\n${F.reviewNextHint()}`, { kind: params.kind, text });
 		},
 
 		renderResult(result, options, theme) {
