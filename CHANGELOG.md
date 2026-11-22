@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.3 — 2026-11-22
+
+Tests: the binds ledger gets its own characterization suite.
+
+- **The gap** — `src/binds.ts` was exercised only through `claim.test.ts`'s
+  record→find→spend trio; its edge semantics (lock refusal, corrupt-file
+  propagation, kind+hash keying, sid exclusion, MAX_ROWS trim, silent row
+  drops) had no guard. `tests/binds.test.ts` pins current behavior
+  export-by-export (24 tests, temp-rooted, the suite's local-`t` pattern)
+  and joins the `npm test` chain.
+- **Pinned semantics worth naming** — readBinds normalizes `version` on
+  read (a file's `99` never surfaces); `spendBind` never consults `sid`
+  (the self-bind guard lives solely in `findBind`); a corrupt binds file
+  always throws from record/spend and is never rewritten; an empty
+  `recordBinds` still creates the file when absent; read errors beyond
+  ENOENT are swallowed — a non-file at the binds path reads as empty
+  binds (stamp.ts's readers rethrow; pinned as-is).
+
 ## 0.3.2 — 2026-11-22
 
 Cross-repo sessions: `bind` and `commit` take `targetDir`.
