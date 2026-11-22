@@ -31,8 +31,8 @@ export function ensureClaim(root: string, self: StampRecord): EnsureResult {
 			ok: false,
 			reason:
 				self.sid === ""
-					? "the checkout claim needs a session id — none is visible to this process; the operation blocks (no stamp was created)."
-					: "the checkout claim cannot verify liveness — this process's start token is unreadable; the operation blocks (no stamp was created).",
+					? "the checkout claim needs a session id — none is visible to this process; the operation blocks (no stamp was created) — environment defect; report it, do not retry."
+					: "the checkout claim cannot verify liveness — this process's start token is unreadable; the operation blocks (no stamp was created) — environment defect; report it, do not retry.",
 		};
 	}
 	const d = decideClaim(readStamp(root), self, SELF_PROBE);

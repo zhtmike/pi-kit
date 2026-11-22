@@ -8,10 +8,13 @@ import {
 	bindPostNextHint,
 	bindTreeNextHint,
 	commitBody,
+	commitLaneReason,
 	commitNextHint,
 	draftBody,
 	draftNextHint,
+	assistanceConflictReason,
 	gateApprovedLabel,
+	notInGitTreeReason,
 	previewCommand,
 	reviewNextHint,
 	uncoveredReason,
@@ -82,6 +85,18 @@ t("the unbound refusal names the reviewer-lane convergence loop", () => {
 	assert.match(r, /^refused: the staged tree is unbound/);
 	assert.match(r, /reviewer lane with the review task in its brief and bind in its tools/);
 	assert.match(r, /re-review after any further edits until the staged tree matches the bound tree/);
+});
+
+t("commit's lane refusal and the git-tree refusal carry their remedies", () => {
+	assert.equal(
+		commitLaneReason(),
+		"commit refuses in a dispatched lane — lanes never land code; the parent session applies the patch and lands it through this gate",
+	);
+	assert.equal(
+		notInGitTreeReason("/tmp/x"),
+		"not inside a git work tree (from /tmp/x) — pass targetDir pointing inside the tree, or run from inside it",
+	);
+	assert.equal(assistanceConflictReason(), "body already carries an AI-assistance section — put the text inside it or drop the assistance param");
 });
 
 process.exit(failures === 0 ? 0 : 1);

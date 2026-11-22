@@ -13,9 +13,14 @@ const t = (name: string, fn: () => void) => {
 };
 
 const id = identityFrom("pi", { id: "zai/glm-5.3", baseUrl: "https://api.z.ai/v1" });
+const noModel = identityFrom("pi", undefined);
 
-t("trailers: model line plus domain-derived co-author", () => {
-	assert.deepEqual(trailerLines(id), ["AI-assistance: pi (zai/glm-5.3)", "Co-authored-by: pi <noreply@z.ai>"]);
+t("trailers: model line plus the fixed pi.dev co-author — never the provider domain, never a bare name", () => {
+	assert.deepEqual(trailerLines(id), ["AI-assistance: pi (zai/glm-5.3)", "Co-authored-by: pi <noreply@pi.dev>"]);
+});
+
+t("trailers: the fixed domain never degrades — no model, no baseUrl still yields noreply@pi.dev", () => {
+	assert.deepEqual(trailerLines(noModel), ["Co-authored-by: pi <noreply@pi.dev>"]);
 });
 
 t("commitMessage: identity trailers always ride, blank-separated after the body, caller trailers after them", () => {

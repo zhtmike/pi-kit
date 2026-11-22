@@ -63,7 +63,7 @@ function ok(text: string, details: any = {}): AgentToolResult {
 function fenceOff(pi: ExtensionAPI, msg: string): void {
 	pi.on("tool_call", async () => ({
 		block: true,
-		reason: `pi-kit is not running — invalid config: ${msg}. Fix the file and restart; every gated operation blocks until then.`,
+		reason: `pi-kit config is invalid — ${msg}. Fix the file and restart; every gated operation blocks until then.`,
 	}));
 	pi.on("session_start", (_event, ctx) => {
 		if (ctx.mode === "tui" || ctx.mode === "rpc") ctx.shutdown();
@@ -207,7 +207,7 @@ export default function (pi: ExtensionAPI) {
 				const sid = ctx.sessionManager.getSessionId() ?? "";
 				// A classified git command's claim target is strict: unresolved blocks.
 				const r = await ensureClaimAt(exec, dir, sid, { strict: true });
-				return r.ok ? undefined : { block: true, reason: `claim check failed first — ${r.reason}` };
+				return r.ok ? undefined : { block: true, reason: r.reason };
 			}
 			return;
 		}
@@ -355,14 +355,14 @@ export default function (pi: ExtensionAPI) {
 			const treeRoot = await gitRootOf(exec, startDir);
 			if (treeRoot === null) throw new Error(`${F.notInGitTreeReason(startDir)} — the claim applies only to git trees`);
 			if (params.action === "clean") {
-				if (sid === "") throw new Error("clean refuses an empty session id — it deletes exactly .pi/work/s/<own sid>/, and nothing else is reachable");
+				if (sid === "") throw new Error("clean refuses an empty session id — it deletes exactly .pi/work/s/<own sid>/, and nothing else is reachable — environment defect; report it, do not retry");
 				if (!/^[A-Za-z0-9._-]+$/.test(sid)) throw new Error(`clean refuses session id '${sid}' — it must be a plain slug; the boundary is .pi/work/s/<own sid>/`);
 				const dir = path.join(treeRoot, ".pi", "work", "s", sid);
 				fs.rmSync(dir, { recursive: true, force: true });
 				return ok(F.checkoutCleanBody(dir));
 			}
 			if (params.action === "worktree") {
-				if (sid === "") throw new Error("worktree refuses an empty session id — nothing to key the worktree path on; the block stands");
+				if (sid === "") throw new Error("worktree refuses an empty session id — nothing to key the worktree path on; the block stands — environment defect; report it, do not retry");
 				if (!(await piDirIgnored(exec, treeRoot))) {
 					throw new Error(F.piNotIgnoredReason(treeRoot, "worktrees live under .pi/worktrees"));
 				}
@@ -430,7 +430,7 @@ export default function (pi: ExtensionAPI) {
 		label: "Bind a fresh review",
 		description:
 			"Record that a fresh review ran — the record commit (kind tree) and gh posts (kind post) spend. " +
-			"Tree rows never count for the spender's own session; post rows spend for any recorded binder. Refuses at thinking off/minimal/low — a low-thinking binder reviews nothing.",
+			"Tree rows never count for the spender's own session — a tree row your own session records never pays for your own commit; dispatch the reviewer lane; post rows spend for any recorded binder. Refuses at thinking off/minimal/low — a low-thinking binder reviews nothing.",
 		parameters: Type.Object({
 			kind: stringEnum(["tree", "post"] as const, { description: "tree: the staged index (git write-tree); post: a to-be-posted text file" }),
 			path: Type.Optional(Type.String({ description: "kind post only: the file whose sha256 is bound (the --body-file of the coming gh post)" })),
@@ -443,7 +443,7 @@ export default function (pi: ExtensionAPI) {
 				throw new Error(`bind refuses at thinking '${level}' — a low-thinking binder reviews nothing. Re-dispatch the reviewer lane at high or maximum thinking.`);
 			}
 			const sid = ctx.sessionManager.getSessionId() ?? "";
-			if (sid === "") throw new Error("bind refuses an empty session id — the record must name the reviewing session");
+			if (sid === "") throw new Error("bind refuses an empty session id — the record must name the reviewing session — environment defect; report it, do not retry");
 			const startDir = targetOrCwd(params.targetDir, ctx.cwd ?? process.cwd());
 			const treeRoot = await gitRootOf(exec, startDir);
 			if (treeRoot === null) throw new Error(F.notInGitTreeReason(startDir));
@@ -479,11 +479,12 @@ export default function (pi: ExtensionAPI) {
 		parameters: Type.Object({
 			subject: Type.String({ description: "One-line subject (repo convention when one exists)" }),
 			body: Type.Optional(Type.String({ description: "Body: root-cause narrative with numbers, not a diff restatement" })),
-			trailers: Type.Optional(Type.Array(Type.String(), { description: "Extra trailer lines (a trailer the edited files' own rules require rides along, never dropped)" })),
+			trailers: Type.Optional(Type.Array(Type.String(), { description: "Extra trailer lines — the AI-assistance/Co-authored-by identity trailers are injected automatically, pass only the rest" })),
 			targetDir: Type.Optional(Type.String({ description: "Operate on the repo containing this path — default: the session's cwd; the claim is ensured in that repo" })),
 		}),
 
 		async execute(_id, params, _signal, _onUpdate, ctx) {
+			if (childMarker()) throw new Error(F.commitLaneReason());
 			const sid = ctx.sessionManager.getSessionId() ?? "";
 			const startDir = targetOrCwd(params.targetDir, ctx.cwd ?? process.cwd());
 			const treeRoot = await gitRootOf(exec, startDir);
@@ -602,6 +603,7 @@ export default function (pi: ExtensionAPI) {
 			const template = readTemplate(treeRoot);
 			const identity = identityFrom(cfg.agentName, ctx.model as any);
 			const check = checkDraft(params.body, params.assistance, template?.text, identity);
+			if (check.assistanceConflict) throw new Error(F.assistanceConflictReason());
 			if (check.templateMissing.length > 0) throw new Error(F.templateMissingReason(template!.path, check.templateMissing));
 			// The draft lands first — the deliverable survives a missing compare URL.
 			const file = path.join(treeRoot, `pr_${slugify(head)}.md`);

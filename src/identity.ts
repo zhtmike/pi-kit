@@ -1,43 +1,29 @@
 /**
  * Agent/model identity and the texts derived from it — trailers, markers,
- * disclosures. Identity comes from the session's active model (id, provider,
- * baseUrl) plus the configured agent name; an unverifiable segment is dropped,
- * never guessed. Pure: no host imports.
+ * disclosures. Identity comes from the session's active model id plus the
+ * configured agent name; an unverifiable segment is dropped, never guessed.
+ * Pure: no host imports.
  */
 
 export interface Identity {
 	agent: string;
 	model?: string;
-	/** Provider domain derived from the model's baseUrl (noreply host for Co-authored-by); absent when unverifiable. */
-	domain?: string;
-}
-
-/** Derive the provider domain from a baseUrl hostname: strip api./www. prefixes; must contain a dot. */
-export function domainOfBaseUrl(baseUrl: string | undefined): string | undefined {
-	if (baseUrl === undefined || baseUrl === "") return undefined;
-	try {
-		const u = new URL(baseUrl.includes("://") ? baseUrl : `https://${baseUrl}`);
-		let host = u.hostname.toLowerCase();
-		host = host.replace(/^(api|www)\./, "");
-		return host.includes(".") ? host : undefined;
-	} catch {
-		return undefined;
-	}
 }
 
 export function identityFrom(cfgAgentName: string, model: { id: string; baseUrl?: string } | undefined): Identity {
 	return {
 		agent: cfgAgentName,
 		model: model?.id !== undefined && model.id !== "" ? model.id : undefined,
-		domain: domainOfBaseUrl(model?.baseUrl),
 	};
 }
 
-/** The universal commit trailers; unverifiable segments drop to the bare allowed remainder. */
+/** The universal commit trailers; the AI-assistance line drops when the model is unverifiable. */
 export function trailerLines(id: Identity): string[] {
 	const out: string[] = [];
 	if (id.model !== undefined) out.push(`AI-assistance: ${id.agent} (${id.model})`);
-	out.push(id.domain !== undefined ? `Co-authored-by: ${id.agent} <noreply@${id.domain}>` : `Co-authored-by: ${id.agent}`);
+	// The co-author domain is the harness project's own (pi.dev) — the old
+	// baseUrl-derived domain attributed the disclosure to the model provider.
+	out.push(`Co-authored-by: ${id.agent} <noreply@pi.dev>`);
 	return out;
 }
 

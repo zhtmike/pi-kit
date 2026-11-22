@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { commentText, replyText, summaryText, checkDraft, templateHeadings, parseRemoteUrl, isGithubHost , readTemplate } from "../src/envelopes.ts";
-import { identityFrom, trailerLines, replyMarker, summaryFooter, domainOfBaseUrl } from "../src/identity.ts";
+import { identityFrom, trailerLines, replyMarker, summaryFooter } from "../src/identity.ts";
 
 let failures = 0;
 const t = (name: string, fn: () => void) => {
@@ -104,21 +104,21 @@ t("a template with its own AI section: unfilled refuses naming it; filled passes
 	assert.equal(filled.body, "## What\nx\n\n## AI assistance\nhuman reviewed everything"); // no append on top
 	assert.deepEqual(filled.templateMissing, []);
 });
+t("draft: assistance param with a body that already carries the section is a conflict", () => {
+	const own = checkDraft("# T\n\n## AI assistance\n\nhuman reviewed.", "agent did it", undefined, id);
+	assert.equal(own.assistanceConflict, true); // detected pure-side; the caller refuses
+	assert.equal(checkDraft("# T\n\nno section yet", "agent did it", undefined, id).assistanceConflict, false);
+	// a no-section body with no param still throws (pinned above) — never reaches the flag
+});
+
 t("template headings parse and skip the AI-assistance heading", () => {
 	assert.deepEqual(templateHeadings("## A\nprose\n### B\n## AI assistance\n"), ["## A", "### B"]);
 });
 
 // --- identity/URLs ------------------------------------------------------------------------
-t("trailers: full pair with domain; bare remainder without", () => {
-	assert.deepEqual(trailerLines(id), ["AI-assistance: pi (glm-5.3)", "Co-authored-by: pi <noreply@z.ai>"]);
-	assert.deepEqual(trailerLines(bareId), ["AI-assistance: pi (glm-5.3)", "Co-authored-by: pi"]);
-});
-t("domain derivation strips api./www. and requires a dot", () => {
-	assert.equal(domainOfBaseUrl("https://api.z.ai/v1"), "z.ai");
-	assert.equal(domainOfBaseUrl("https://api.anthropic.com"), "anthropic.com");
-	assert.equal(domainOfBaseUrl("https://www.example.com/x"), "example.com");
-	assert.equal(domainOfBaseUrl("not-a-url"), undefined); // no dot — unverifiable
-	assert.equal(domainOfBaseUrl(undefined), undefined);
+t("trailers: fixed pi.dev co-author with or without a baseUrl — never degrades to a bare name", () => {
+	assert.deepEqual(trailerLines(id), ["AI-assistance: pi (glm-5.3)", "Co-authored-by: pi <noreply@pi.dev>"]);
+	assert.deepEqual(trailerLines(bareId), ["AI-assistance: pi (glm-5.3)", "Co-authored-by: pi <noreply@pi.dev>"]);
 });
 t("remote parse: https/scp/ssh forms; SSH alias and bare host are unparseable", () => {
 	assert.deepEqual(parseRemoteUrl("https://github.com/zhtmike/skills.git"), { host: "github.com", owner: "zhtmike", name: "skills" });

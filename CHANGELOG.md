@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.4.1 — 2026-11-22
+
+The ease-of-use audit: the co-author address fixed to the project's
+own domain, the commit surface tightened for lanes and duplicate trailers.
+
+- **The co-author address attributed the wrong project** — the domain under
+  `Co-authored-by` derived from the model's baseUrl, so commits landed
+  `noreply@z.ai` — the model provider's domain, not the harness project's.
+  The address is fixed at `noreply@pi.dev` and never degrades to a bare
+  name; commits before 0.4.1 carry the provider-domain address, so GitHub
+  splits the co-author avatar row across the change.
+- **The trailers param invited double attribution** — an agent following
+generic conventions could pass its own `AI-assistance:`/`Co-authored-by:`
+and double-inject the disclosure. The `trailers` param description now
+states the identity trailers are injected automatically — pass only the
+rest (deliberately no hard-coded dedup — name-matching heuristics drift
+with conventions; the description is the contract).
+- **commit could land from a lane** — a dispatched lane could commit directly,
+  bypassing the parent-applies-the-patch flow. `commit` now refuses in any
+  lane (`PI_MINIMAL_DISPATCH_CHILD`): lanes never land code; the parent
+  session applies the patch and lands it through this gate.
+- **draft silently dropped a conflicting `assistance` param** — when the
+  body already carried the AI-assistance section, the param vanished
+  without a word. The conflict now refuses: put the text inside the body's
+  own section or drop the param.
+- **Smaller** — `bind`'s description states the tree-row rule's operative
+  point (your own session's tree row never pays for your own commit —
+  dispatch the reviewer lane); the not-in-a-git-tree refusal names the
+  remedy (`targetDir` inside the tree, or run from inside it); the claim
+  floor's block no longer wraps the inner reason (`claim check failed
+  first — …` is gone); the config-fence reason reads `pi-kit config is
+  invalid — …`; the blind-probe and empty-sid refusals (claim runner;
+  `clean`/`worktree`/`bind`) name the environment defect — report it, do
+  not retry.
+
 ## 0.4.0 — 2026-11-22
 
 The all-gates override, plus the four-repo cross-audit fixes.

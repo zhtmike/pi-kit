@@ -84,6 +84,8 @@ export interface DraftCheck {
 	body: string;
 	/** Template headings the body was missing (non-empty only with `templateError`). */
 	templateMissing: string[];
+	/** `assistance` was passed while the body already carries the section — the caller refuses. */
+	assistanceConflict: boolean;
 }
 
 /** Markdown headings a PR template pins (## Section / # Section lines). */
@@ -96,6 +98,9 @@ export function templateHeadings(template: string): string[] {
 
 export function checkDraft(body: string, assistance: string | undefined, template: string | undefined, id: Identity): DraftCheck {
 	let out = body.replace(/\s+$/, "");
+	// `assistance` plus a body already carrying the section is a direct
+	// contradiction — detected here, refused by the caller.
+	const assistanceConflict = assistance !== undefined && assistance.trim() !== "" && ASSISTANCE_HEADING_RE.test(out);
 	// A repo template may carry its own AI/assistance section — when it does,
 	// the body MUST fill it (that section is the disclosure) and nothing is
 	// appended on top; when it does not, the tool appends its own section.
@@ -104,7 +109,7 @@ export function checkDraft(body: string, assistance: string | undefined, templat
 		const bodyLines = new Set(out.split("\n").map((l) => l.trim()));
 		const missing = templateHeadings(template).filter((h) => !bodyLines.has(h));
 		if (missing.length > 0) {
-			return { body: out, templateMissing: missing };
+			return { body: out, templateMissing: missing, assistanceConflict };
 		}
 	}
 	if (templateOwnsDisclosure) {
@@ -112,7 +117,7 @@ export function checkDraft(body: string, assistance: string | undefined, templat
 			const heading = (template ?? "").split("\n").find((l) => ASSISTANCE_HEADING_RE.test(l))?.trim() ?? "the template's AI-assistance section";
 			throw new Error(`the PR template pins its own disclosure (${heading}) — fill that section in the body; nothing is appended on top of a template that carries one`);
 		}
-		return { body: out, templateMissing: [] };
+		return { body: out, templateMissing: [], assistanceConflict };
 	}
 	if (!ASSISTANCE_HEADING_RE.test(out)) {
 		if (assistance === undefined || assistance.trim() === "") {
@@ -122,7 +127,7 @@ export function checkDraft(body: string, assistance: string | undefined, templat
 		}
 		out = `${out}\n\n${assistanceSection(id, assistance)}`;
 	}
-	return { body: out, templateMissing: [] };
+	return { body: out, templateMissing: [], assistanceConflict };
 }
 
 // --- PR template discovery (draft) -------------------------------------------------------

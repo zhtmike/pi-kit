@@ -126,7 +126,7 @@ export function allowedViaNote(source: string): string {
 // --- tool result bodies ------------------------------------------------------------------------
 
 export function notInGitTreeReason(from: string): string {
-	return `not inside a git work tree (from ${from})`;
+	return `not inside a git work tree (from ${from}) — pass targetDir pointing inside the tree, or run from inside it`;
 }
 
 export function checkoutCleanBody(dir: string): string {
@@ -180,6 +180,16 @@ export function bindUnboundReason(): string {
 		"Dispatch ONE read-only reviewer lane with the review task in its brief and bind in its tools (the lane binds the tree it reviewed), then re-call commit; " +
 		"re-review after any further edits until the staged tree matches the bound tree."
 	);
+}
+
+/** commit's lane refusal — the landing gate stays with the parent session. */
+export function commitLaneReason(): string {
+	return "commit refuses in a dispatched lane — lanes never land code; the parent session applies the patch and lands it through this gate";
+}
+
+/** draft's assistance conflict — the param and the body's own section contradict. */
+export function assistanceConflictReason(): string {
+	return "body already carries an AI-assistance section — put the text inside it or drop the assistance param";
 }
 
 export function commitUnapprovedHeadlessReason(): string {

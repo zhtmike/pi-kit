@@ -181,9 +181,13 @@ accumulate harmlessly.
 
 Commits the staged diff: hooks on (never `--no-verify`), identity trailers
 injected (`AI-assistance: <agent> (<model>)` and
-`Co-authored-by: <agent> <noreply@<provider-domain>>`, domain derived from
-the model's baseUrl — unverifiable segments drop), caller trailers ride
-along. It does **not** run the fresh review — `commit-gate` still does,
+`Co-authored-by: <agent> <noreply@pi.dev>` — the harness project's own
+domain, fixed rather than derived from the model's baseUrl; commits before
+0.4.1 carry the provider-domain address, so GitHub splits the co-author
+avatar row across the change), caller trailers ride along — the identity
+trailers are injected automatically (the `trailers` param says so; pass
+only the rest).
+It does **not** run the fresh review — `commit-gate` still does,
 before this tool is called; its reviewer lane uses the fast read-only
 model at high thinking (the judgment model at maximum thinking only for
 design-grade artifacts, unsettleable reads, or blocking findings). Params:
@@ -196,7 +200,9 @@ pre-approved commit — standing allow or session grant — waives the missing
 bind; otherwise the refusal names the reviewer-lane loop: dispatch a
 read-only reviewer lane with bind in its tools, re-call commit, re-review
 after further edits until the staged tree matches the bound tree); then an
-approval (standing → session → dialog). On success it verifies the landing commit
+approval (standing → session → dialog). A dispatched lane is refused
+outright — lanes never land code; the parent session applies the patch and
+lands it through this gate. On success it verifies the landing commit
 in the log and spends the bind row. If a hook mutated the index
 mid-commit, the commit lands but the result states the divergence — the
 row stays unspent, re-review and re-bind.
@@ -213,7 +219,9 @@ Writes/overwrites `pr_<branch-slug>.md` in the project root. Inputs:
 `body` (the model composes it — what/why, root cause, tests+results),
 `assistance` (what the agent did, what the human reviewed and stands
 behind — appended as the `## AI assistance` section when the body carries
-none; a body with no section and no param refuses), optional `base`/`head`
+none; a body with no section and no param refuses, and passing `assistance`
+while the body already carries the section refuses too — put the text
+inside it or drop the param), optional `base`/`head`
 (defaults: remote HEAD branch / current branch). Where a PR template exists
 it is the envelope — a single file (`.github/PULL_REQUEST_TEMPLATE.md`,
 `PULL_REQUEST_TEMPLATE.md`, `docs/PULL_REQUEST_TEMPLATE.md`, either case) or
