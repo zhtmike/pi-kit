@@ -9,6 +9,8 @@ import {
 	bindTreeNextHint,
 	commitBody,
 	commitLaneReason,
+	checkoutWorktreeExists,
+	checkoutWorktreeSynced,
 	commitNextHint,
 	draftBody,
 	draftNextHint,
@@ -97,6 +99,14 @@ t("commit's lane refusal and the git-tree refusal carry their remedies", () => {
 		"not inside a git work tree (from /tmp/x) — pass targetDir pointing inside the tree, or run from inside it",
 	);
 	assert.equal(assistanceConflictReason(), "body already carries an AI-assistance section — put the text inside it or drop the assistance param");
+});
+
+t("worktree bodies: exists names the as-is cases; synced names the re-root", () => {
+	assert.match(checkoutWorktreeExists("/wt"), /worktree exists: \/wt \(returned as-is — already current, or dirty: its edits are unlanded work\)/);
+	assert.equal(
+		checkoutWorktreeSynced("/wt", "abcdef1234567890"),
+		"worktree synced /wt to abcdef123456 (clean tree — re-rooted at the checkout's HEAD)\n[next: work under the returned path — its own git dir takes its own stamp]",
+	);
 });
 
 process.exit(failures === 0 ? 0 : 1);

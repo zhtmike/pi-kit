@@ -370,7 +370,18 @@ export default function (pi: ExtensionAPI) {
 				const head = await exec("git", ["rev-parse", "--verify", "HEAD"], { cwd: treeRoot });
 				if (head.code !== 0) throw new Error(F.unbornHeadReason("a detached worktree needs HEAD to exist", "worktree"));
 				const wt = path.join(treeRoot, ".pi", "worktrees", sid);
-				if (fs.existsSync(wt)) return ok(F.checkoutWorktreeExists(wt));
+				if (fs.existsSync(wt)) {
+					// Sequential milestone lanes need the latest verified commit as base:
+					// a clean worktree re-roots at the checkout's HEAD; a dirty one is unlanded work — returned as-is.
+					const dirty = await exec("git", ["status", "--porcelain"], { cwd: wt });
+					const whead = await exec("git", ["rev-parse", "--verify", "HEAD"], { cwd: wt });
+					if (dirty.code === 0 && dirty.stdout.trim() === "" && whead.code === 0 && whead.stdout.trim() !== head.stdout.trim()) {
+						const sync = await exec("git", ["reset", "--hard", head.stdout.trim()], { cwd: wt });
+						if (sync.code !== 0) throw new Error(`worktree sync to ${head.stdout.trim().slice(0, 12)} failed at ${wt}: ${sync.stderr.trim()} — returned as-is; reset it by hand or remove the directory`);
+						return ok(F.checkoutWorktreeSynced(wt, head.stdout.trim()));
+					}
+					return ok(F.checkoutWorktreeExists(wt));
+				}
 				const r = await pi.exec("git", ["worktree", "add", "--detach", wt, "HEAD"], { cwd: treeRoot, timeout: 30_000 });
 				if (r.code !== 0) throw new Error(`git worktree add failed at ${treeRoot}: ${r.stderr.trim()} — the main checkout is unchanged; resolve the git state or work elsewhere.`);
 				return ok(F.checkoutWorktreeCreated(wt));

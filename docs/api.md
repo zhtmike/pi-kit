@@ -68,7 +68,7 @@ created only where `.pi/` is gitignored — pi-kit never edits ignore files.
 |---|---|
 | `status` | stamp state + owner liveness |
 | `claim` | take the checkout; replaces only a dead same-host owner |
-| `worktree` | the blocked-session escape: returns an existing-or-new detached worktree at `<root>/.pi/worktrees/<sid>`; the main checkout's claim is unchanged |
+| `worktree` | the blocked-session escape: returns an existing-or-new detached worktree at `<root>/.pi/worktrees/<sid>`; an existing **clean** worktree whose HEAD differs from the checkout's is re-rooted at the checkout's HEAD (sequential milestone lanes get the latest verified commit as base); a dirty one is returned as-is (its edits are unlanded work); the main checkout's claim is unchanged |
 | `clean` | delete exactly `.pi/work/s/<own sid>/` — siblings unreachable, empty sid refuses |
 
 There is no `release` action — the stamp is not a chore the model performs; a

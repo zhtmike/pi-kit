@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.2 — 2026-11-22
+
+Sequential milestone lanes get the latest verified commit as base.
+
+- **The defect** — `checkout worktree` returned an existing worktree
+  as-is, so a second implementation lane on the same session built on a
+  stale HEAD: milestone 2's brief described work against code milestone
+  1's commit had already changed. A **clean** worktree whose HEAD differs
+  from the checkout's is now re-rooted at the checkout's HEAD (the
+  session's own scratch tree — a clean reset loses nothing); a dirty one
+  is still returned as-is (its edits are unlanded work), and the exists
+  body now says which case you got.
+
 ## 0.4.1 — 2026-11-22
 
 The ease-of-use audit: the co-author address fixed to the project's

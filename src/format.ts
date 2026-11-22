@@ -134,7 +134,12 @@ export function checkoutCleanBody(dir: string): string {
 }
 
 export function checkoutWorktreeExists(path: string): string {
-	return `worktree exists: ${path} (returned as-is)\n${worktreeNextHint()}`;
+	return `worktree exists: ${path} (returned as-is — already current, or dirty: its edits are unlanded work)\n${worktreeNextHint()}`;
+}
+
+/** checkout worktree — synced to the checkout's HEAD for the next sequential lane. */
+export function checkoutWorktreeSynced(path: string, sha: string): string {
+	return `worktree synced ${path} to ${sha.slice(0, 12)} (clean tree — re-rooted at the checkout's HEAD)\n${worktreeNextHint()}`;
 }
 
 export function checkoutWorktreeCreated(path: string): string {
