@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { commentText, replyText, summaryText, checkDraft, templateHeadings, parseRemoteUrl, isGithubHost , readTemplate } from "../src/envelopes.ts";
+import { commentText, replyText, summaryText, SUMMARY_VERDICTS, checkDraft, templateHeadings, parseRemoteUrl, isGithubHost, readTemplate } from "../src/envelopes.ts";
 import { identityFrom, trailerLines, replyMarker, summaryFooter } from "../src/identity.ts";
 
 let failures = 0;
@@ -21,18 +21,10 @@ const bareId = identityFrom("pi", { id: "glm-5.3" });
 const noModel = identityFrom("pi", undefined);
 
 // --- comment ------------------------------------------------------------------------------
-t("comment: file:line anchor + one ask + at most one fact", () => {
-	assert.equal(commentText({ file: "src/a.ts", line: 42, ask: "Drop the fallback" }), "src/a.ts:42: Drop the fallback");
-	assert.equal(commentText({ file: "src/a.ts", line: 42, ask: "Drop the fallback", fact: "src/b.ts:10 does the same check" }), "src/a.ts:42: Drop the fallback — src/b.ts:10 does the same check");
-});
-t("comment: a non-positive line refuses", () => {
-	assert.throws(() => commentText({ file: "a", line: 0, ask: "x" }), /positive line/);
-});
-t("comment: anchorless shape is the bare ask (fact joins unchanged); file/line must pair", () => {
-	assert.equal(commentText({ ask: "Rename the helper" }), "Rename the helper");
-	assert.equal(commentText({ ask: "Rename the helper", fact: "src/b.ts:10 does the same check" }), "Rename the helper — src/b.ts:10 does the same check");
-	assert.throws(() => commentText({ file: "a", ask: "x" }), /file and line together/);
-	assert.throws(() => commentText({ line: 3, ask: "x" }), /file and line together/);
+t("comment: the ask, then at most one fact", () => {
+	assert.equal(commentText("Drop the fallback"), "Drop the fallback");
+	assert.equal(commentText("Drop the fallback", "src/b.ts:10 does the same check"), "Drop the fallback — src/b.ts:10 does the same check");
+	assert.equal(commentText("Drop it", "  "), "Drop it");
 });
 
 // --- reply --------------------------------------------------------------------------------
@@ -68,10 +60,14 @@ t("marker drops the model parenthetical when unverifiable; small-print wrap alwa
 });
 
 // --- summary ------------------------------------------------------------------------------
-t("summary closes with the AI-assistance footer; no double footer", () => {
-	const text = summaryText("Two findings, both blocking.", id);
+t("summary opens with the standardized verdict line, closes with the footer; no double footer", () => {
+	const text = summaryText("minor", "Prior round accounting stands.", id);
+	assert.match(text, /^\*\*Verdict: minor — no blocking findings; everything below is cleanup-grade\.\*\*\n\nPrior round accounting stands\./);
 	assert.match(text, /AI assistance \(pi, glm-5\.3\) was used for this review\.$/);
-	assert.equal(summaryText(text, id), text);
+	assert.throws(() => summaryText("clean", "  ", id), /empty/);
+	assert.deepEqual(Object.keys(SUMMARY_VERDICTS).sort(), ["blocking", "clean", "minor"]);
+	// register-free: no fixed gloss carries merge directives
+	assert.equal(Object.values(SUMMARY_VERDICTS).some((g) => /merge|ready/i.test(g)), false);
 });
 
 // --- draft -------------------------------------------------------------------------------

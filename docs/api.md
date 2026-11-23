@@ -22,8 +22,8 @@ record, the footer display, and `standingAllows` shapes:
 |---|---|---|---|
 | `commit` | the `commit` tool's own gate | — (bash `git commit` is refuse-tier) | yes |
 | `push` | `git push` (owner-checked under any allow) | `git push` | yes |
-| `pr` | PR compose surfaces, create and edit | `gh pr create` · `gh pr edit` | yes |
-| `comment` | prose on issues/PRs — `pr`/`issue comment`, `pr review --comment`, `issue create/edit` | `gh comment` | yes |
+| `pr` | PR compose surfaces, create and edit — and `post` kind `pr` | `gh pr create` · `gh pr edit` | yes |
+| `comment` | prose on issues/PRs — `pr`/`issue comment`, `pr review --comment`, `issue create/edit` — and `post` kinds `review`/`comment`/`reply` | `gh comment` | yes |
 | `tag` | `git tag` write forms | `git tag` | yes |
 | `release` | `gh release create/upload` (the git-tag twin) | `gh release` | yes |
 | `destructive` | every shape past ask — destructive and refuse rows, non-owner pushes (the coarse all-gates grant) | — (per-shape never) | no — session-grantable only |
@@ -106,7 +106,8 @@ quit/exit unlinks it best-effort (reload/new/resume/fork keep it).
 
 Closing rules: anything that changes PR/issue state or posts a review verdict
 is refuse. A gh post carrying prose is ask **only** with `--body-file` of a
-[bound](#tool-bind) file; inline `--body`, heredocs, and pipes
+[bound](#tool-bind) file (the `post` tool is the bind-free route — the text
+rides the call); inline `--body`, heredocs, and pipes
 (`--body-file -`) are refuse naming `--body-file`; `--title` is metadata (no
 bind). Any `-f`/`-F` makes `gh api` a POST regardless of `-X`. Compound
 commands evaluate per segment, most-restrictive-wins; a heredoc body is
@@ -175,7 +176,7 @@ unbound refusal says so). Rows are hash-keyed; stale unspent rows
 accumulate harmlessly.
 
 - kind `tree`: `git write-tree` of the index, re-verified by `commit` immediately before it commits.
-- kind `post`: sha256 of the file at `path` — the `--body-file` of the coming gh post.
+- kind `post`: sha256 of the file at `path` — the `--body-file` of the coming gh post. The `post` tool records no row — its call's own bytes are the record.
 
 ### Tool `commit`
 
@@ -209,9 +210,11 @@ row stays unspent, re-review and re-bind.
 
 ## Review surfaces
 
-No-gh-write environments are first-class: both tools' results are the
-deliverable, paste-ready, no posting, no network. The TUI result row expands
-to the full text; headless gets it as the whole response.
+`draft` composes and checks the PR body; `post` composes and delivers the
+review surfaces (a review with inline threads, a comment, a reply, a PR).
+Present the composed texts in the conversation — post takes the same
+structured inputs, and its composition is deterministic: what was approved
+is what posts.
 
 ### Tool `draft`
 
@@ -235,27 +238,71 @@ landed base..head commits for body-sync. An unparseable remote is a loud
 error naming the manual path. Overwrite is the update path after new commits
 land.
 
-### Tool `review`
+### Tool `post`
 
-Returns the text in the tool result; the marker is appended by the tool.
+One call composes and posts to GitHub through the user's authenticated `gh`
+(pi-kit opens no connection of its own). The review event is pinned to
+`COMMENT` — post never submits an approve or request-changes verdict and
+never merges/closes/reopens/marks ready: those stay refuse-tier, user-only.
+The standardized summary verdicts are prose inside a comment review, never
+GitHub states — accepting or rejecting a PR remains a human action.
 
-- kind `comment`: anchored, `file:line: <one imperative ask>` plus at most one fact; `file`/`line` may both be dropped for the anchorless issue-comment surface — the bare ask (the fact joins it unchanged). A line without a file errors naming both.
-- kind `reply`: the answered finding (`quote`) opens the reply as a `>` blockquote — GitHub-native quoting that survives collapsed threads — then `Addressed in \`<commit>\`:` (commit required) or `Skipped, with reasoning:` (reason required), with `answers` (required) and `verification` as bullets below. Marker: `<sub>AI-assisted reply — <agent> (<model>)</sub>` — conversation-gate's small-print line, rendered small on the remote. A reply lands in the thread it answers — never as a top-level comment.
-- kind `summary`: the caller's text — block-composed (verdict / findings / coverage) — closed with `AI assistance (<agent>, <model>) was used for this review.`
+- kind `review`: `number`, `verdict` (`clean` — "no findings" / `minor` —
+  "no blocking findings; everything below is cleanup-grade" / `blocking` —
+  "blocking findings below" — register-free severity glosses, fixed),
+  `text` (the body below the verdict line: findings, coverage, accounting),
+  `comments[]` of `{file, line, ask, fact?}` — inline threads. The posted
+  summary is the verdict line, the text, and the disclosure footer
+  (`AI assistance (<agent>, <model>) was used for this review.`); each
+  posted thread body is the anchorless `ask — fact` composition (the API
+  anchors; `file:line:` is presentation, not payload). Inline threads carry
+  no marker — the review's footer discloses.
+- kind `comment`: `number` (PR or issue), `body` — one standalone comment
+  (free prose); the `<sub>AI-assisted reply — <agent> (<model>)</sub>`
+  marker is appended when missing (a standalone comment carries its own
+  disclosure).
+- kind `reply`: `number`, `inReplyTo` (a review-comment id), `verdict`
+  (`addressed`/`skipped`), `quote`, `answers`, `commit` (required for
+  addressed), `reason` (required for skipped), `verification` — composes
+  the reply: the quote as a `>` blockquote (survives collapsed threads),
+  `Addressed in \`<commit>\`:` / `Skipped, with reasoning:`, answers and
+  verification as bullets, the marker. Lands in the thread it answers —
+  never as a top-level comment.
+- kind `pr`: create (`title`, `body`, optional `base`/`head` — `owner:branch`
+  for fork PRs; defaults: the remote HEAD branch / the current branch) or
+  edit (`number` plus `title` and/or `body` — the body-sync flow). The draft
+  envelope applies at the posting boundary: a body missing the template's
+  pinned headings or the AI-assistance section refuses — draft is the
+  composer.
 
-Verdict vocabulary is fixed: `addressed` / `skipped`. The tool refuses text
-it cannot mark or attribute (unverifiable agent → error; unverifiable model
-→ parenthetical drops); each reply ends with its own marker — a trailing
-duplicate is never appended, a quoted marker never suppresses it. Comments
-carry no marker: the bare-findings shape is the comment's own (its anchor
-plays the footer's role), and the review's footer discloses.
+Verdict vocabularies are fixed and kind-scoped: `clean`/`minor`/`blocking`
+serve kind review, `addressed`/`skipped` serve kind reply — a token in the
+wrong kind is an error naming both sets. The tool refuses text it cannot
+attribute (unverifiable agent → error; unverifiable model → parenthetical
+drops); a body already ending in its marker or footer never gains a second.
+
+`repo` (`owner/name`) names a target that is not the session's own —
+fork→upstream posts pass it; an unresolvable target refuses demanding it.
+The result reports what was **submitted** (from the request — response
+echoes are not verification) and the returned URL.
+
+Gating: kind `pr` maps to the `pr` action, every other kind to `comment` —
+the existing ladder (standing allow keyed on the target repo, session grant,
+dialog; headless refuses naming standingAllows). The tier is a deliberate
+widening, not a side effect: the raw `gh api` reviews endpoint stays refuse
+(it can carry verdict states); post's payload structurally cannot, so it
+rides the ask ladder. post takes no checkout claim (it writes nothing
+local) and records no bind row — the gate works in any repo, including
+trees where `.pi/` is not ignored. Refuses at thinking off/minimal/low (a
+low-thinking poster publishes nothing unverified) and in dispatched lanes
+(the parent presents, takes the approval, and posts).
 
 ## Result hints
 
 Tool results chain the workflow with one bracketed `[next: …]` line,
 appended only when the named step is real for the caller — `bind` names its
-spender, `commit` names the push/draft follow-ups, `draft` names the bind
-step then the post, `review` names the write→bind→post path, `checkout
+spender, `commit` names the push/draft follow-ups, `draft` names the `post`
+step, `checkout
 worktree` names working under the returned path, `approve` names the
 now-dialog-free op. The convention (not the wording) is the contract;
 the texts live in `src/format.ts` under test.
@@ -274,8 +321,9 @@ the audit line lives in the transcript, never the footer.
 
 ## Non-goals
 
-No judgment gating, no MCP, no network at runtime, no cross-harness
-portability, no publish. The floor is a forgetting backstop, not a sandbox.
+No judgment gating, no MCP, no network beyond the user's gh CLI (the `post`
+tool rides its authentication), no cross-harness portability, no publish.
+The floor is a forgetting backstop, not a sandbox.
 Standing-assumption residue, documented rather than gated: git aliases
 (`git config --get alias.<word>` shows any that appear), `GIT_CONFIG_*`
 injections, exotic plumbing writers (`filter-repo`, `update-ref`,

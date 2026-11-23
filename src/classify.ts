@@ -271,7 +271,7 @@ function ghBodyArgs(args: string[]): { inline?: boolean; bodyFile?: string; stdi
 }
 
 function ghPostRefusal(what: string): string {
-	return `${what} with inline --body (or stdin/heredoc/pipe) is refused — compose the text with review, write it to a file, bind it (bind kind post), then re-post with --body-file <file>.`;
+	return `${what} with inline --body (or stdin/heredoc/pipe) is refused — post it via the post tool, or write it to a file, bind it (bind kind post), then re-post with --body-file <file>.`;
 }
 
 function classifyGh(words: string[]): Classification {
@@ -325,12 +325,12 @@ function classifyGh(words: string[]): Classification {
 			return refuse("gh api", `gh api POST ${path} merges/closes — PR/issue state changes are refuse-tier for agents; ask the user.`);
 		}
 		if (/\/reviews$/.test(path)) {
-			return refuse("gh api", `gh api POST ${path} submits a review verdict — refuse-tier for agents; post comments via gh pr review --comment with a bound --body-file instead.`);
+			return refuse("gh api", `gh api POST ${path} submits a review verdict — refuse-tier for agents; post the review via the post tool (kind review — COMMENT event, inline threads) or ask the user.`);
 		}
 		// Postable prose via -f fields (comment bodies) rides the same bind rule as --body.
 		const prose = ["body", "body_text", "bodyMarkdown", "comment"].filter((k) => fields.has(k));
 		if (prose.length > 0) {
-			return refuse("gh api", `gh api POST carrying postable prose via -f ${prose[0]}= — refuse-tier. Compose the text with review, then post it via 'gh pr comment <n> --body-file <file>' bound through bind (kind post).`);
+			return refuse("gh api", `gh api POST carrying postable prose via -f ${prose[0]}= — refuse-tier. Post it via the post tool (kind comment/reply), or 'gh pr comment <n> --body-file <file>' bound through bind (kind post).`);
 		}
 		return allow("gh api");
 	}
@@ -344,7 +344,7 @@ function classifyGh(words: string[]): Classification {
 		}
 		if (verb === "review") {
 			if (args.includes("--approve") || args.includes("--request-changes")) {
-				return refuse("gh pr review", "gh pr review --approve/--request-changes posts a review verdict — refuse-tier for agents; post findings as comments (review comment + gh pr review --comment --body-file).");
+				return refuse("gh pr review", "gh pr review --approve/--request-changes posts a review verdict — refuse-tier for agents; post findings as comments (post kind review — COMMENT event only).");
 			}
 			if (args.includes("--comment")) {
 				const b = ghBodyArgs(args);

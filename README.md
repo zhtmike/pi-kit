@@ -19,7 +19,7 @@ Six single-word names, one per gate surface:
 | `commit` | commit the staged diff: hooks on, identity trailers, the review bind spent, the approval named |
 | `bind` | record that a fresh review ran (the staged tree, or a to-be-posted text file) — what `commit` and gh posts spend |
 | `draft` | write/overwrite `pr_<branch-slug>.md`: template coverage, AI-assistance section, local compare URL, landed commits |
-| `review` | paste-ready review texts in-result: one summary + one comment per thread + one reply per answered thread |
+| `post` | compose and post to GitHub via the user's gh: a COMMENT review with inline threads (verdicts `clean/minor/blocking`), a comment, a reply (`addressed/skipped`), or a PR create/edit — gated on `comment`/`pr`, no bind file, no claim |
 
 ## The floors
 

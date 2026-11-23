@@ -28,14 +28,9 @@ export function commitNextHint(): string {
 	return nextHint("push when ready (git push is owner-checked); draft writes the PR body from the landed commits; checkout (action clean) clears this session's scratch once the work ships");
 }
 
-/** draft → the bind that keys the post, then the post itself. */
+/** draft → the post tool that creates the PR from the checked body. */
 export function draftNextHint(): string {
-	return nextHint("bind (kind post, path <the draft file>) once the text is final, then gh pr create --body-file <the file> — ask-tier (a pr grant or the dialog covers it)");
-}
-
-/** review → the write/bind/post path that carries the returned text. */
-export function reviewNextHint(): string {
-	return nextHint("to post — write the text to a file, bind (kind post, path <file>), then gh … --body-file <file>; inline --body is refused");
+	return nextHint("post (kind pr, title, body <the checked body>) creates the PR — ask-tier (a pr grant or the dialog covers it)");
 }
 
 /** checkout worktree → work under the returned path. */
@@ -77,8 +72,8 @@ export function bindsFileReason(): string {
 
 export function postBindRefusal(file: string): string {
 	return (
-		`gh post refused — --body-file ${file} has no bind record. Compose the text with review, write it to a file, ` +
-		"bind it (bind kind post, path <file>), then re-run with --body-file. Inline --body, heredocs, and pipes are refused outright."
+		`gh post refused — --body-file ${file} has no bind record. Compose the text and post it via the post tool (no bind needed), ` +
+		"or write it to a file, bind it (bind kind post, path <file>), then re-run with --body-file. Inline --body, heredocs, and pipes are refused outright."
 	);
 }
 
@@ -199,6 +194,32 @@ export function assistanceConflictReason(): string {
 
 export function commitUnapprovedHeadlessReason(): string {
 	return "refused: no approval covers this commit (no standing allow for this repo, no session approval, no UI for a dialog). Ask the user, or add a standingAllows entry in pi-kit.json.";
+}
+
+// --- post ---------------------------------------------------------------------------------------
+
+/** post's lane refusal — presenting and posting stay with the parent session. */
+export function postLaneReason(): string {
+	return "post refuses in a dispatched lane — the parent session presents the text, takes the approval, and posts";
+}
+
+/** post's target-repo refusal — the fork checkout's push remote names the fork, not the PR target. */
+export function postRepoUnresolvedReason(): string {
+	return "could not resolve the target repo — pass repo ('owner/name'); a fork checkout's own remote names the fork, and cross-repo posts (fork→upstream) always name the target";
+}
+
+/** post's PR-body refusal — draft is the composer that guarantees the disclosure. */
+export function postPrNoAssistanceReason(): string {
+	return "the PR body carries no AI-assistance section — draft composes and checks it; run draft (it appends or requires the section), then post the checked body";
+}
+
+/** The post dialog — target and what submits, capped (the full texts live in the conversation). */
+export function postDialogBody(target: string, submitted: string): string {
+	return ["pi-kit: post to GitHub?", target, submitted].join("\n");
+}
+
+export function postBody(kind: string, target: string, url: string, submitted: string, approvalSource: string): string {
+	return [`posted ${kind} → ${target}`, url, `submitted: ${submitted}`, `approval: ${approvalSource}`].join("\n");
 }
 
 export function commitDivergedBody(bound: string, landed: string): string {

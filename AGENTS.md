@@ -12,11 +12,11 @@ never published to npm. Read [docs/api.md](docs/api.md) first — it is the
 user-facing contract; tool schemas are the model-facing half of the same
 contract. When code and docs disagree, that is a bug in one of them; fix the
 disagreement, not just the code. Non-goals (docs/api.md): no judgment
-gating, no MCP, no network at runtime, no cross-harness portability, no
-publish.
+gating, no MCP, no network beyond the user's gh CLI, no cross-harness
+portability, no publish.
 
 Surface discipline: the settled tools are the whole surface — `checkout`,
-`approve`, `commit`, `bind`, `draft`, `review`; no slash commands, no
+`approve`, `commit`, `bind`, `draft`, `post`; no slash commands, no
 new option, state, or action without a payer against docs/api.md. Tool
 descriptions stay lean (purpose, workflow skeleton, semantics the parameter
 names don't carry, warnings code cannot enforce) — schema text rides every
@@ -30,7 +30,8 @@ The full reference never enters context.
 - `src/classify.ts` — the tier table (pure)
 - `src/claim.ts` / `src/claimrun.ts` / `src/stamp.ts` — claim rows, runner, stamp/lock IO
 - `src/approvals.ts` — the gate-action vocabulary, shape→action map, session-approval record/replay core (pure; recognition is the agent's judgment via `approve`)
-- `src/envelopes.ts` — review-surface shapes, PR-template discovery, remote-URL parsing (pure)
+- `src/envelopes.ts` — review-surface shapes (verdict vocabularies, markers, footers), PR-template discovery, remote-URL parsing (pure)
+- `src/post.ts` — the post tool's pure core: kind validation, text composition, and the REST payloads, the review event pinned to COMMENT (pure)
 - `src/identity.ts` — agent/model identity, trailers, commit messages, markers, disclosures (pure)
 - `src/format.ts` — every composite human-facing text: result bodies, dialog bodies, `[next: …]` hints, footer labels (pure; decision-attached reasons stay with their decisions in claim/classify)
 - `src/binds.ts` — `.pi/REVIEW_BINDS.json` under the lock discipline
@@ -53,7 +54,7 @@ The full reference never enters context.
 
 ## Testing
 
-`npm test` (ten plain-node suites on the pure cores) and the typecheck gates
+`npm test` (eleven plain-node suites on the pure cores) and the typecheck gates
 in CI (floor 1.4.0, canary latest). UI/event wiring is proven by live runs —
 the proving scenarios live in the repo's design history; when you exercise
 one, record what ran in the PR description.

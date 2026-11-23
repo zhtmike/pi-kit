@@ -10,11 +10,10 @@
  */
 
 import * as fs from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import * as path from "node:path";
 import { Type } from "typebox";
-import { defineTool, getMarkdownTheme, isToolCallEventType, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Markdown, Text } from "@earendil-works/pi-tui";
+import { defineTool, isToolCallEventType, type AgentToolResult, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { loadConfig, standingCovers, type PiKitConfig } from "./config.ts";
 import { classifyCommand } from "./classify.ts";
 import { ALL_ACTIONS, actionOfShape, foldEntry, isApprovalAction, refuseCovered, type ApprovalAction } from "./approvals.ts";
@@ -27,14 +26,15 @@ import {
 	headBranch,
 	isTracked,
 	logRange,
+	repoIdentity,
 	piDirIgnored,
 	pushRemoteUrl,
-	repoIdentity,
 	resolvePushTarget,
 	writeTree,
 	type ExecFn,
 } from "./githelp.ts";
-import { checkDraft, commentText, isGithubHost, parseRemoteUrl, readTemplate, replyText, summaryText } from "./envelopes.ts";
+import { checkDraft, isGithubHost, parseRemoteUrl, readTemplate } from "./envelopes.ts";
+import { checkPrBody, postRequest, validatePost, type PostParams } from "./post.ts";
 import { setStatusPart, bindStatusSink } from "./status.ts";
 import { readStamp, stampPath, unlinkIfOurs } from "./stamp.ts";
 import { expandShellPath, slugify, UNEXPANDED_RE } from "./util.ts";
@@ -467,7 +467,7 @@ export default function (pi: ExtensionAPI) {
 			} else {
 				if (params.path === undefined) throw new Error("kind 'post' requires 'path' — the file the coming gh post reads via --body-file");
 				const p = path.resolve(params.path);
-				if (!fs.existsSync(p)) throw new Error(`no such file: ${p} — write the post text (review returns it), then bind it`);
+				if (!fs.existsSync(p)) throw new Error(`no such file: ${p} — write the post text, then bind it`);
 				hash = sha256File(p);
 			}
 			const self = selfOf(sid);
@@ -637,59 +637,155 @@ export default function (pi: ExtensionAPI) {
 	});
 	pi.registerTool(draftTool);
 
-	// --- review ----------------------------------------------------------------------------
 
-	const reviewTool = defineTool({
-		name: "review",
-		label: "Review text",
+	// --- post --------------------------------------------------------------------------------
+
+	const postTool = defineTool({
+		name: "post",
+		label: "Post to GitHub",
 		description:
-			"Return paste-ready review texts in the tool result — one summary call plus one comment call per thread, plus one reply call per answered thread; no posting, no dialog. " +
-			"A reply renders the `quote` as a > blockquote, then 'Addressed in <commit>:' or 'Skipped, with reasoning:'; the AI-assistance marker is appended.",
+			"One call composes and posts to GitHub via the user's gh CLI: a review (kind review — COMMENT event only, inline threads; it can never approve or request changes), " +
+			"a PR/issue comment, a reply in a review thread, or a PR (create, or edit with number). " +
+			"Present the texts in the conversation and post the same structured inputs — composition is deterministic. " +
+			"Gated on the comment/pr actions — no claim, no bind file, works in any repo.",
 		parameters: Type.Object({
-			kind: stringEnum(["comment", "reply", "summary"] as const, { description: "Which review surface" }),
-			file: Type.Optional(Type.String({ description: "kind comment: the file the anchor names" })),
-			line: Type.Optional(Type.Number({ description: "kind comment: the line the anchor names", minimum: 1 })),
-			ask: Type.Optional(Type.String({ description: "kind comment: one imperative ask" })),
-			fact: Type.Optional(Type.String({ description: "kind comment: at most one fact (a sibling path rides here)" })),
-			verdict: Type.Optional(stringEnum(["addressed", "skipped"] as const, { description: "kind reply: the verdict token" })),
-			quote: Type.Optional(Type.String({ description: "kind reply (required): the finding, request, or comment replied to — rendered at the top as a > blockquote" })),
-			answers: Type.Optional(Type.String({ description: "kind reply (required): the reply's own answer, below the verdict opener" })),
-			commit: Type.Optional(Type.String({ description: "kind reply: the commit that addressed it (required for 'addressed')" })),
+			kind: stringEnum(["review", "comment", "reply", "pr"] as const, { description: "Which posting surface" }),
+			repo: Type.Optional(Type.String({ description: "Target repo 'owner/name' — required when the target is not the session's repo (fork→upstream posts name it)" })),
+			number: Type.Optional(Type.Number({ description: "PR number (review/comment/reply); kind pr: present = edit, absent = create", minimum: 1 })),
+			verdict: Type.Optional(
+				stringEnum(["addressed", "skipped", "clean", "minor", "blocking"] as const, {
+					description: "kind review: clean | minor | blocking (the summary verdict); kind reply: addressed | skipped — pick per kind",
+				}),
+			),
+			text: Type.Optional(Type.String({ description: "kind review: the body below the verdict line (findings, coverage, accounting)" })),
+			comments: Type.Optional(
+				Type.Array(
+					Type.Object({
+						file: Type.String({ description: "The thread's anchor — a path relative to the repo root, as the PR diff shows it" }),
+						line: Type.Number({ description: "The line the thread anchors to (right side)", minimum: 1 }),
+						ask: Type.String({ description: "One imperative ask — the thread's body" }),
+						fact: Type.Optional(Type.String({ description: "At most one fact (a sibling path rides here)" })),
+					}),
+					{ description: "kind review: the inline threads, anchored at file:line" },
+			),
+			),
+			body: Type.Optional(Type.String({ description: "kind comment/pr: the posted body, verbatim" })),
+			inReplyTo: Type.Optional(Type.Number({ description: "kind reply: the review-comment id answered (gh api GET repos/<o>/<r>/pulls/<n>/comments lists them)", minimum: 1 })),
+			quote: Type.Optional(Type.String({ description: "kind reply: the finding, request, or comment answered — rendered at the top as a > blockquote" })),
+			answers: Type.Optional(Type.String({ description: "kind reply: the reply's own answer, below the verdict opener" })),
+			commit: Type.Optional(Type.String({ description: "kind reply (addressed): the commit that addressed it" })),
 			verification: Type.Optional(Type.String({ description: "kind reply: the verification behind the answer" })),
-			reason: Type.Optional(Type.String({ description: "kind reply: why it was skipped (required for 'skipped')" })),
-			text: Type.Optional(Type.String({ description: "kind summary: the review body, block-composed (verdict / findings / coverage)" })),
+			reason: Type.Optional(Type.String({ description: "kind reply (skipped): why it was skipped" })),
+			title: Type.Optional(Type.String({ description: "kind pr: the title" })),
+			base: Type.Optional(Type.String({ description: "kind pr create: base branch (default: the remote HEAD branch)" })),
+			head: Type.Optional(Type.String({ description: "kind pr create: head — 'branch', or 'owner:branch' for fork PRs (default: the current branch)" })),
 		}),
 
 		async execute(_id, params, _signal, _onUpdate, ctx) {
-			const identity = identityFrom(cfg.agentName, ctx.model as any);
-			if (identity.agent === "") throw new Error("no agent identity — pass agentName in pi-kit.json; the tool refuses unattributed text");
-			let text: string;
-			if (params.kind === "comment") {
-				if (params.ask === undefined) throw new Error("kind 'comment' requires ask");
-				if ((params.file === undefined) !== (params.line === undefined)) {
-					throw new Error("kind 'comment' requires file and line together, or neither (anchorless — the issue-comment surface)");
-				}
-				text = commentText({ file: params.file, line: params.line, ask: params.ask, fact: params.fact });
-			} else if (params.kind === "reply") {
-				if (params.verdict === undefined || params.answers === undefined) {
-					throw new Error("kind 'reply' requires verdict and answers");
-				}
-				text = replyText(
-					{ verdict: params.verdict, quote: params.quote ?? "", answers: params.answers, commit: params.commit, verification: params.verification, reason: params.reason },
-					identity,
-				);
-			} else {
-				if (params.text === undefined) throw new Error("kind 'summary' requires text");
-				text = summaryText(params.text, identity);
+			if (childMarker()) throw new Error(F.postLaneReason());
+			const level = ctx.thinkingLevel ?? "";
+			if (level === "off" || level === "minimal" || level === "low") {
+				throw new Error(`post refuses at thinking '${level}' — a low-thinking poster publishes nothing unverified; re-dispatch or re-run at high thinking.`);
 			}
-			return ok(`${text}\n${F.reviewNextHint()}`, { kind: params.kind, text });
-		},
+			const errs = validatePost(params);
+			if (errs.length > 0) throw new Error(errs.join("\n"));
 
-		renderResult(result, options, theme) {
-			const body = result.content.map((b) => (b.type === "text" ? b.text : "")).join("\n");
-			if (!options.expanded) return new Text(theme.fg("toolOutput", body.split("\n")[0].slice(0, 200)), 0, 0);
-			return new Markdown(body, 0, 0, getMarkdownTheme());
+			// Target identity: the repo param, else the session repo's own; unresolvable demands the param
+			// (a fork checkout's push remote names the fork — upstream posts pass repo).
+			let targetIdent: string;
+			if (params.repo !== undefined) {
+				targetIdent = params.repo;
+			} else {
+				const ident = await repoIdentity(exec, ctx.cwd ?? process.cwd());
+				if (ident === undefined) throw new Error(F.postRepoUnresolvedReason());
+				targetIdent = ident;
+			}
+			const [owner, repoName] = targetIdent.split("/");
+			const target = `${targetIdent}${params.number !== undefined ? `#${params.number}` : ""}`;
+
+			// kind pr: the draft envelope at the posting boundary (body checks run when a body posts) + create's head/base defaults.
+			const p: PostParams = { ...params };
+			if (params.kind === "pr") {
+				const treeRoot = await gitRootOf(exec, ctx.cwd ?? process.cwd());
+				if (params.body !== undefined) {
+					const template = treeRoot === null ? undefined : readTemplate(treeRoot);
+					const check = checkPrBody(params.body, template?.text);
+					if (check.templateMissing.length > 0) throw new Error(F.templateMissingReason(template!.path, check.templateMissing));
+					if (check.assistanceMissing) throw new Error(F.postPrNoAssistanceReason());
+				}
+				if (params.number === undefined) {
+					if (p.head === undefined) {
+						if (treeRoot === null) throw new Error("kind 'pr' create without head needs the session inside the repo — or pass head ('owner:branch' for forks) and base explicitly");
+						p.head = await headBranch(exec, treeRoot);
+					}
+					// Outside any tree the documented fallback applies — the same default draft uses when the remote ref is unknown.
+					p.base = p.base ?? (treeRoot === null ? "main" : await defaultBase(exec, treeRoot));
+				}
+			}
+
+			const identity = identityFrom(cfg.agentName, ctx.model as any);
+			const req = postRequest(p, { owner, name: repoName }, identity);
+			// What was SUBMITTED (the request) — response echoes are not verification.
+			const threads = p.comments ?? [];
+			const anchors = threads.slice(0, 5).map((c) => `${c.file}:${c.line}`).join(", ") + (threads.length > 5 ? ", …" : "");
+			const submitted =
+				p.kind === "review"
+					? `summary ${String(req.payload.body).length} chars + ${threads.length} inline threads${anchors !== "" ? ` (${anchors})` : ""}`
+					: p.kind === "pr" && p.number === undefined
+						? `PR created: ${p.title}`
+						: p.kind === "pr"
+							? `PR edit: ${[p.title !== undefined ? `title ${p.title.length} chars` : null, p.body !== undefined ? `body ${p.body.length} chars` : null].filter((s) => s !== null).join(" + ")}`
+							: `body ${String(req.payload.body ?? "").length} chars`;
+
+			// Approval ladder — the target repo's standing allow, the session grant, the dialog.
+			const action: ApprovalAction = params.kind === "pr" ? "pr" : "comment";
+			let approvalSource: string;
+			if (standingCovers(cfg, targetIdent, action)) {
+				approvalSource = `standing allow (${action})`;
+			} else if (grants.has(action)) {
+				approvalSource = "session approval";
+			} else if (ctx.hasUI) {
+				const choice = await ctx.ui.select(F.postDialogBody(target, submitted), [...F.DIALOG_CHOICES_SESSION]);
+				if (choice === undefined || choice === "Refuse") throw new Error(F.dialogRefusedReason(`post (kind ${params.kind}) → ${target}`));
+				approvalSource = "dialog";
+				if (choice === "Approve for this session") {
+					const fail = recordEntry({ granted: [action], source: "dialog" });
+					if (fail === undefined) {
+						grants.add(action);
+						approvalFooter();
+						approvalSource = "dialog (approved for this session)";
+					} else {
+						approvalSource = `dialog (approve once — ${F.approvalRecordFailedReason(fail)})`;
+					}
+				}
+			} else {
+				const suggestion = ` Standing allow for this shape: { "repo": "${targetIdent}", "shapes": ["${action}"] } in pi-kit.json standingAllows.`;
+				throw new Error(F.uncoveredReason(`post (kind ${params.kind}) → ${target}`, suggestion));
+			}
+
+			// The payload rides the user's gh; nothing local is written outside the tmpdir.
+			const dir = fs.mkdtempSync(path.join(tmpdir(), "pi-kit-post-"));
+			let url: string;
+			try {
+				const file = path.join(dir, "payload.json");
+				fs.writeFileSync(file, JSON.stringify(req.payload));
+				const r = await pi.exec("gh", ["api", "-X", req.method, req.path, "--input", file], { timeout: 60_000 });
+				if (r.code !== 0) throw new Error(`gh api ${req.method} ${req.path} failed (exit ${r.code}): ${(r.stderr.trim() || r.stdout.trim()).slice(0, 500)}`);
+				let resp: { html_url?: unknown };
+				try {
+					resp = JSON.parse(r.stdout);
+				} catch {
+					throw new Error(`gh api returned unparseable output: ${r.stdout.slice(0, 200)}`);
+				}
+				if (typeof resp.html_url !== "string" || resp.html_url === "") {
+					throw new Error(`gh api succeeded but no html_url came back: ${JSON.stringify(resp).slice(0, 200)}`);
+				}
+				url = resp.html_url;
+			} finally {
+				fs.rmSync(dir, { recursive: true, force: true });
+			}
+			return ok(F.postBody(params.kind, target, url, submitted, approvalSource), { url, kind: params.kind, repo: targetIdent, number: params.number });
 		},
 	});
-	pi.registerTool(reviewTool);
+	pi.registerTool(postTool);
 }

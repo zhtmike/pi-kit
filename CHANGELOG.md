@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 — 2026-11-23
+
+The posting audit: one tool composes and posts every review surface; verdicts standardized.
+
+- **Posting a review took two user asks and the coarse destructive grant** — the only route that could carry inline threads (`gh api POST …/reviews`) was refuse-tier, the suggested `gh pr review --comment --body-file` route cannot carry threads at all, and in repos where `.pi/` is not gitignored every ask-tier route died at the claim floor and `bind(post)` refused — the floors funneled a routine comment post into the all-gates override (observed end-to-end on verl-omni#882). The new `post` tool composes and delivers in one call — a review (the COMMENT event pinned in the payload; it can never approve or reject a PR), a comment, a reply, a PR create/edit — gated on the existing `comment`/`pr` actions: one approval covers it, in any repo, with no bind file and no claim.
+- **`review` and `post` duplicated one surface** — review composed texts post recomposed from mirrored params. `review` is deleted; `post` owns composition (verdict line, reply shape, markers, footers). Presentation stays in the conversation; post takes the same structured inputs and composes deterministically — what was approved is what posts.
+- **Verdicts are standardized** — kind review picks `clean` | `minor` | `blocking` (register-free glosses; merge directives stay in the free text), kind reply keeps `addressed` | `skipped`; a token in the wrong kind is an error naming both sets.
+- The tier widening is deliberate and named in docs/api.md: the raw reviews endpoint stays refuse (it can carry verdict states); post's payload structurally cannot, so it rides the ask ladder.
+
 ## 0.4.2 — 2026-11-22
 
 Sequential milestone lanes get the latest verified commit as base.

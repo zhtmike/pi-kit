@@ -1,7 +1,8 @@
 /**
- * Review-surface envelopes — the universal shapes review emits and draft
- * enforces (disclosure presence, template coverage). Verdict
- * vocabulary is fixed: `addressed` / `skipped`; every other token stays prose.
+ * Review-surface envelopes — the universal shapes post emits and draft
+ * enforces (disclosure presence, template coverage). Verdict vocabularies
+ * are fixed: reply `addressed` / `skipped`, summary `clean` / `minor` /
+ * `blocking`; every other token stays prose.
  * Pure: no host imports.
  */
 
@@ -11,12 +12,17 @@ import * as path from "node:path";
 
 // --- review -------------------------------------------------------------------------
 
-export interface CommentInput {
-	/** The anchor file — present only together with `line`; both absent is the anchorless issue-comment surface. */
-	file?: string;
-	line?: number;
-	ask: string;
-	fact?: string;
+export type SummaryVerdict = "clean" | "minor" | "blocking";
+
+/** Register-free severity glosses — merge directives are the free text's business, never fixed prose. */
+export const SUMMARY_VERDICTS: Record<SummaryVerdict, string> = {
+	clean: "no findings",
+	minor: "no blocking findings; everything below is cleanup-grade",
+	blocking: "blocking findings below",
+};
+
+export function verdictLine(verdict: SummaryVerdict): string {
+	return `**Verdict: ${verdict} — ${SUMMARY_VERDICTS[verdict]}.**`;
 }
 
 export interface ReplyInput {
@@ -32,15 +38,8 @@ export interface ReplyInput {
 	reason?: string;
 }
 
-export function commentText(c: CommentInput): string {
-	if (c.line === undefined) {
-		if (c.file !== undefined) throw new Error("comment requires file and line together, or neither (anchorless — the issue-comment surface)");
-		return c.fact !== undefined && c.fact !== "" ? `${c.ask} — ${c.fact}` : c.ask;
-	}
-	if (c.file === undefined) throw new Error("comment requires file and line together, or neither (anchorless — the issue-comment surface)");
-	if (c.line < 1) throw new Error(`comment line must be a positive line number, got ${c.line}`);
-	const anchor = `${c.file}:${c.line}`;
-	return c.fact !== undefined && c.fact !== "" ? `${anchor}: ${c.ask} — ${c.fact}` : `${anchor}: ${c.ask}`;
+export function commentText(ask: string, fact?: string): string {
+	return fact !== undefined && fact.trim() !== "" ? `${ask} — ${fact}` : ask;
 }
 
 export function replyText(r: ReplyInput, id: Identity): string {
@@ -70,11 +69,20 @@ export function replyText(r: ReplyInput, id: Identity): string {
 	return lines.join("\n");
 }
 
-export function summaryText(text: string, id: Identity): string {
+export function summaryText(verdict: SummaryVerdict, text: string, id: Identity): string {
 	if (text.trim() === "") throw new Error("summary text is empty — compose the review body first");
 	const footer = summaryFooter(id);
-	if (text.includes(footer)) return text;
-	return `${text.replace(/\s+$/, "")}\n\n${footer}`;
+	const body = `${verdictLine(verdict)}\n\n${text.replace(/\s+$/, "")}`;
+	if (text.includes(footer)) return body;
+	return `${body}\n\n${footer}`;
+}
+
+/** A standalone comment/reply body carries its own disclosure — appended when missing, never doubled. */
+export function appendMarkerIfMissing(body: string, id: Identity): string {
+	if (body.trim() === "") throw new Error("the posted body is empty — compose the text first");
+	const trimmed = body.replace(/\s+$/, "");
+	const marker = replyMarker(id);
+	return trimmed.endsWith(marker) ? trimmed : `${trimmed}\n\n${marker}`;
 }
 
 // --- draft --------------------------------------------------------------------------
