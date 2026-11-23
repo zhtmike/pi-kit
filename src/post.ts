@@ -7,16 +7,23 @@
  * refuse-tier in the bash floor, user-only). Pure: no host imports.
  */
 
-import { appendMarkerIfMissing, commentText, replyText, summaryText, templateHeadings, type SummaryVerdict } from "./envelopes.ts";
-import { ASSISTANCE_HEADING_RE, type Identity } from "./identity.ts";
+import { appendMarker, commentText, replyText, summaryText, templateHeadings, type SummaryVerdict } from "./envelopes.ts";
+import { ASSISTANCE_HEADING_RE, disclosureLine, type Identity } from "./identity.ts";
 
 export type PostKind = "review" | "comment" | "reply" | "pr";
 export type PostVerdict = "addressed" | "skipped" | SummaryVerdict;
+export type CommentSeverity = "blocking" | "minor";
 
 export interface PostComment {
-	/** The thread's anchor — a path relative to the repo root, as the PR diff shows it. */
+	/** The thread's anchor — a path in the PR diff, as the PR diff shows it; GitHub threads diffed files only, so a finding elsewhere anchors on the nearest diffed line and passes cites. */
 	file: string;
 	line: number;
+	/** The finding's severity — the thread opens with it; never clean (clean means no threads). */
+	severity: CommentSeverity;
+	/** A short finding id the summary text refers to (C1, R3) — one token, unique across the review. */
+	label?: string;
+	/** The finding's own location when it is outside the diff (path:line, a file, two places) — rendered before the ask. */
+	cites?: string;
 	ask: string;
 	fact?: string;
 }
@@ -63,7 +70,7 @@ export interface PostRequest {
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 
-/** Kind-scope validation errors — requireds, cross-kind params, value forms; each names the param and the kind. Reply's field requireds (commit/reason) fire at compose time in replyText, before the dialog. */
+/** Kind-scope validation errors — requireds, cross-kind params, value forms; each names the param and the kind. The tool owns every disclosure: a review text or comment body carrying its own refuses. Reply's field requireds (commit/reason) fire at compose time in replyText, before the dialog. */
 export function validatePost(p: PostParams): string[] {
 	const errs: string[] = [];
 	const need = (cond: boolean, msg: string): void => {
@@ -75,11 +82,33 @@ export function validatePost(p: PostParams): string[] {
 		need(p.verdict !== undefined, "kind 'review' requires verdict — one of: clean, minor, blocking");
 		need(p.verdict === undefined || ["clean", "minor", "blocking"].includes(p.verdict), `verdict '${p.verdict}' does not serve kind 'review' — pick clean, minor, or blocking (addressed/skipped serve kind 'reply')`);
 		need(p.text !== undefined && p.text.trim() !== "", "kind 'review' requires text (the body below the verdict line — findings, coverage, accounting)");
+		if (p.text !== undefined) {
+			const line = disclosureLine(p.text);
+			if (line !== undefined) errs.push(`kind 'review' text carries its own AI-assistance disclosure at line ${line} — the tool appends the footer; drop the line`);
+		}
 		need(p.body === undefined, "kind 'review' takes text, not body — text is the review body");
-		for (const c of p.comments ?? []) {
+		const comments = p.comments ?? [];
+		const firstWithLabel = new Map<string, string>();
+		for (const c of comments) {
+			const where = `${c.file}:${c.line}`;
 			need(c.file !== undefined && c.file.trim() !== "", "every comment requires file (the thread's anchor path)");
-			need(Number.isInteger(c.line) && c.line >= 1, `comment on '${c.file}' requires line >= 1, got '${c.line}'`);
-			need(c.ask !== undefined && c.ask.trim() !== "", `comment on '${c.file}:${c.line}' requires ask`);
+			need(Number.isInteger(c.line) && c.line >= 1, `comment on '${where}' requires line >= 1, got '${c.line}'`);
+			need(c.ask !== undefined && c.ask.trim() !== "", `comment on '${where}' requires ask`);
+			need(c.severity !== undefined, `comment on '${where}' requires severity — blocking or minor`);
+			need(c.severity === undefined || ["blocking", "minor"].includes(c.severity), `severity '${c.severity}' on '${where}' does not serve a thread — pick blocking or minor (clean means no threads)`);
+			if (c.label !== undefined) {
+				const label = c.label.trim();
+				need(label !== "", `comment on '${where}' has an empty label — drop the param or pass one token (C1, R3…)`);
+				need(!/\s/.test(label), `label '${label}' on '${where}' is not one token — a label is a short id the summary text refers to (C1, R3…)`);
+				const first = firstWithLabel.get(label);
+				if (first === undefined) firstWithLabel.set(label, where);
+				else errs.push(`label '${label}' names two threads ('${first}', '${where}') — each thread gets its own`);
+			}
+			if (c.cites !== undefined) need(c.cites.trim() !== "", `comment on '${where}' has an empty cites — drop the param or pass a location (path:line, a file)`);
+		}
+		if (p.verdict === "clean") need(comments.length === 0, "verdict 'clean' means no findings — drop comments or pick minor or blocking");
+		if (p.verdict === "minor") {
+			for (const c of comments) need(c.severity !== "blocking", `comment on '${c.file}:${c.line}' is blocking under verdict 'minor' — pick verdict blocking or severity minor`);
 		}
 	} else {
 		need(p.text === undefined && p.comments === undefined, "text/comments serve kind 'review' only");
@@ -87,6 +116,10 @@ export function validatePost(p: PostParams): string[] {
 	if (p.kind === "comment") {
 		need(p.number !== undefined, "kind 'comment' requires number (the PR or issue)");
 		need(p.body !== undefined && p.body.trim() !== "", "kind 'comment' requires body");
+		if (p.body !== undefined) {
+			const line = disclosureLine(p.body);
+			if (line !== undefined) errs.push(`kind 'comment' body carries its own AI-assistance disclosure at line ${line} — the tool appends the marker; drop the line`);
+		}
 		need(p.verdict === undefined, "kind 'comment' takes no verdict — it is free prose");
 	}
 	if (p.kind === "reply") {
@@ -135,6 +168,11 @@ export function checkPrBody(body: string, template: string | undefined): PrBodyC
 	};
 }
 
+/** Comments whose anchor path is not among the PR's diffed files — GitHub threads diffed files only. */
+export function anchorsOutsideDiff(comments: PostComment[], diffedPaths: Set<string>): PostComment[] {
+	return comments.filter((c) => !diffedPaths.has(c.file));
+}
+
 /** The exact REST call each kind makes; texts compose here — verdict line, reply shape, disclosures. */
 export function postRequest(p: PostParams, repo: { owner: string; name: string }, id: Identity): PostRequest {
 	const base = `repos/${repo.owner}/${repo.name}`;
@@ -146,12 +184,12 @@ export function postRequest(p: PostParams, repo: { owner: string; name: string }
 				payload: {
 					event: "COMMENT",
 					body: summaryText(p.verdict as SummaryVerdict, p.text!, id),
-					// the API anchors the thread — `file:line:` stays presentation, not payload
-					comments: (p.comments ?? []).map((c) => ({ path: c.file, line: c.line, body: commentText(c.ask, c.fact) })),
+					// the API anchors the thread; `file:line:` stays presentation, not payload — cites is the one location that rides the body
+					comments: (p.comments ?? []).map((c) => ({ path: c.file, line: c.line, body: commentText(c) })),
 				},
 			};
 		case "comment":
-			return { method: "POST", path: `${base}/issues/${p.number}/comments`, payload: { body: appendMarkerIfMissing(p.body!, id) } };
+			return { method: "POST", path: `${base}/issues/${p.number}/comments`, payload: { body: appendMarker(p.body!, id) } };
 		case "reply":
 			return {
 				method: "POST",

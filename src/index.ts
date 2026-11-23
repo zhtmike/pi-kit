@@ -34,7 +34,7 @@ import {
 	type ExecFn,
 } from "./githelp.ts";
 import { checkDraft, isGithubHost, parseRemoteUrl, readTemplate } from "./envelopes.ts";
-import { checkPrBody, postRequest, validatePost, type PostParams } from "./post.ts";
+import { anchorsOutsideDiff, checkPrBody, postRequest, validatePost, type PostParams } from "./post.ts";
 import { setStatusPart, bindStatusSink } from "./status.ts";
 import { readStamp, stampPath, unlinkIfOurs } from "./stamp.ts";
 import { expandShellPath, slugify, UNEXPANDED_RE } from "./util.ts";
@@ -657,19 +657,22 @@ export default function (pi: ExtensionAPI) {
 					description: "kind review: clean | minor | blocking (the summary verdict); kind reply: addressed | skipped — pick per kind",
 				}),
 			),
-			text: Type.Optional(Type.String({ description: "kind review: the body below the verdict line (findings, coverage, accounting)" })),
+			text: Type.Optional(Type.String({ description: "kind review: the body below the verdict line (findings, coverage, accounting) — no AI-assistance disclosure; the tool appends the footer" })),
 			comments: Type.Optional(
 				Type.Array(
 					Type.Object({
-						file: Type.String({ description: "The thread's anchor — a path relative to the repo root, as the PR diff shows it" }),
+						file: Type.String({ description: "The thread's anchor — a path in the PR diff, as the PR diff shows it; GitHub threads diffed files only, so a finding elsewhere anchors on the nearest diffed line and passes cites" }),
 						line: Type.Number({ description: "The line the thread anchors to (right side)", minimum: 1 }),
+						severity: stringEnum(["blocking", "minor"] as const, { description: "The finding's severity — the thread opens with it" }),
+						label: Type.Optional(Type.String({ description: "A short finding id the summary text refers to (C1, R3) — one token, unique across the review" })),
+						cites: Type.Optional(Type.String({ description: "The finding's own location when it is outside the diff (path:line, a file) — rendered before the ask" })),
 						ask: Type.String({ description: "One imperative ask — the thread's body" }),
 						fact: Type.Optional(Type.String({ description: "At most one fact (a sibling path rides here)" })),
 					}),
 					{ description: "kind review: the inline threads, anchored at file:line" },
+				),
 			),
-			),
-			body: Type.Optional(Type.String({ description: "kind comment/pr: the posted body, verbatim" })),
+			body: Type.Optional(Type.String({ description: "kind comment/pr: the posted body, verbatim (kind comment: no AI-assistance disclosure — the tool appends the marker)" })),
 			inReplyTo: Type.Optional(Type.Number({ description: "kind reply: the review-comment id answered (gh api GET repos/<o>/<r>/pulls/<n>/comments lists them)", minimum: 1 })),
 			quote: Type.Optional(Type.String({ description: "kind reply: the finding, request, or comment answered — rendered at the top as a > blockquote" })),
 			answers: Type.Optional(Type.String({ description: "kind reply: the reply's own answer, below the verdict opener" })),
@@ -702,6 +705,16 @@ export default function (pi: ExtensionAPI) {
 			}
 			const [owner, repoName] = targetIdent.split("/");
 			const target = `${targetIdent}${params.number !== undefined ? `#${params.number}` : ""}`;
+
+			// GitHub threads diffed files only — an anchor outside refuses before the ask, naming cites.
+			if (params.kind === "review" && params.comments !== undefined && params.comments.length > 0) {
+				const filesPath = `repos/${owner}/${repoName}/pulls/${params.number}/files`;
+				const files = await pi.exec("gh", ["api", filesPath, "--paginate", "--jq", ".[].filename"], { timeout: 60_000 });
+				if (files.code !== 0) throw new Error(`gh api GET ${filesPath} failed (exit ${files.code}): ${(files.stderr.trim() || files.stdout.trim()).slice(0, 500)}`);
+				const diffed = new Set(files.stdout.split("\n").map((l) => l.trim()).filter((l) => l !== ""));
+				const outside = anchorsOutsideDiff(params.comments, diffed);
+				if (outside.length > 0) throw new Error(F.postAnchorOutsideDiffReason(outside.map((c) => `${c.file}:${c.line}`)));
+			}
 
 			// kind pr: the draft envelope at the posting boundary (body checks run when a body posts) + create's head/base defaults.
 			const p: PostParams = { ...params };

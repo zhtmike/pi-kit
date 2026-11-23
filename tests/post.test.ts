@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { appendMarkerIfMissing } from "../src/envelopes.ts";
+import { appendMarker } from "../src/envelopes.ts";
 import { identityFrom } from "../src/identity.ts";
-import { checkPrBody, postRequest, validatePost, type PostParams } from "../src/post.ts";
+import { anchorsOutsideDiff, checkPrBody, postRequest, validatePost, type PostComment, type PostParams } from "../src/post.ts";
 
 let failures = 0;
 const t = (name: string, fn: () => void) => {
@@ -21,7 +21,7 @@ const repo = { owner: "verl-project", name: "verl-omni" };
 
 t("each kind's happy path validates clean", () => {
 	const ok: PostParams[] = [
-		{ kind: "review", number: 882, verdict: "minor", text: "Prior round accounting stands.", comments: [{ file: "src/a.py", line: 53, ask: "Delete the dead branch" }] },
+		{ kind: "review", number: 882, verdict: "minor", text: "Prior round accounting stands.", comments: [{ file: "src/a.py", line: 53, severity: "minor", ask: "Delete the dead branch" }] },
 		{ kind: "review", number: 882, verdict: "clean", text: "Coverage: full sweep, nothing flagged." },
 		{ kind: "comment", number: 882, body: "A standalone comment" },
 		{ kind: "reply", number: 882, inReplyTo: 12345, verdict: "addressed", quote: "the null check", answers: "moved to the caller", commit: "abc1234" },
@@ -60,35 +60,117 @@ t("verdict tokens are kind-scoped; cross-kind params refuse naming the param", (
 		"verdict 'minor' does not serve kind 'reply' — pick addressed or skipped (clean/minor/blocking serve kind 'review')",
 	);
 	assert.equal(validatePost({ kind: "comment", number: 1, body: "x", verdict: "clean" })[0], "kind 'comment' takes no verdict — it is free prose");
-	assert.equal(validatePost({ kind: "comment", number: 1, body: "x", comments: [{ file: "a", line: 1, ask: "y" }] })[0], "text/comments serve kind 'review' only");
+	assert.equal(validatePost({ kind: "comment", number: 1, body: "x", comments: [{ file: "a", line: 1, severity: "minor", ask: "y" }] })[0], "text/comments serve kind 'review' only");
 	assert.equal(validatePost({ kind: "review", number: 1, verdict: "clean", text: "x", body: "b" })[0], "kind 'review' takes text, not body — text is the review body");
 	assert.equal(validatePost({ kind: "reply", number: 1, inReplyTo: 9, verdict: "skipped", quote: "q", answers: "a", body: "b" })[0], "kind 'reply' composes its body from quote/answers — pass those, not body");
 	assert.equal(validatePost({ kind: "comment", number: 1, body: "x", title: "t" })[0], "title/base/head serve kind 'pr' only");
 	assert.equal(validatePost({ kind: "comment", number: 1, body: "x", commit: "abc" })[0], "quote/answers/commit/verification/reason serve kind 'reply' only");
 });
 
-t("comment items validate: file+ask present, line >= 1; repo must be owner/name", () => {
+t("comment items validate: file+ask present, line >= 1, severity blocking|minor; repo must be owner/name", () => {
 	const errs = validatePost({
 		kind: "review",
 		number: 1,
-		verdict: "clean",
+		verdict: "minor",
 		text: "s",
 		comments: [
-			{ file: "a", line: 0, ask: "x" },
-			{ file: " ", line: 2, ask: "x" },
-			{ file: "b", line: 2, ask: "" },
+			{ file: "a", line: 0, severity: "minor", ask: "x" },
+			{ file: " ", line: 2, severity: "minor", ask: "x" },
+			{ file: "b", line: 2, severity: "minor", ask: "" },
+			{ file: "c", line: 3, severity: "clean", ask: "x" } as any,
 		],
 		repo: "not-a-repo",
 	});
 	assert.equal(errs.some((e) => e.includes("requires line >= 1")), true);
 	assert.equal(errs.some((e) => e.includes("requires file")), true);
 	assert.equal(errs.some((e) => e.includes("requires ask")), true);
+	assert.equal(errs.includes("severity 'clean' on 'c:3' does not serve a thread — pick blocking or minor (clean means no threads)"), true);
 	assert.equal(errs.includes("repo 'not-a-repo' is not 'owner/name' — name the target as owner/name"), true);
+});
+
+// --- disclosures, threads, anchors -------------------------------------------------------------
+
+/** The shape of a posted review whose hand-written footer doubled the tool's: 12 lines, the variant footer last. */
+const observedText = [
+	"Blocking: the rework splits functions but keeps a parallel mechanism.",
+	"",
+	"Round accounting at ae9ad4d:",
+	"- SamitHuang's allowlist: fixed at a93e61f.",
+	"- knlnguyen1901's re-check: kept.",
+	"- My two inline comments: partially addressed; re-flagged below.",
+	"",
+	"Fix direction (C1–C7): config owns the field groups.",
+	"",
+	"Coverage: all 14 files at ae9ad4d; #714, #653 and #942 resolved.",
+	"",
+	"AI assistance (pi, zai/glm-5.4; research lanes zai/glm-5.3-flash) was used for this review.",
+].join("\n");
+const review = (text: string, extra: Partial<PostParams> = {}): PostParams => ({ kind: "review", number: 933, verdict: "blocking", text, ...extra });
+
+t("a review text carrying its own disclosure refuses naming the line; a finding that mentions assistance passes", () => {
+	assert.deepEqual(validatePost(review(observedText)), [
+		"kind 'review' text carries its own AI-assistance disclosure at line 12 — the tool appends the footer; drop the line",
+	]);
+	for (const line of [
+		"AI assistance (pi) was used for this review",
+		"_AI assistance (pi, glm) was used for this review._",
+		"<sub>AI-assisted reply — pi (glm-5.3)</sub>",
+		"## AI assistance",
+	]) {
+		assert.equal(validatePost(review(`Finding one.\n\n${line}`)).length, 1, line);
+	}
+	assert.deepEqual(validatePost(review("- The AI-assistance trailer is missing on abc\nAI-assisted code in worker.py:4 re-derives the contract")), []);
+});
+
+t("a comment body carrying a disclosure refuses naming the marker", () => {
+	assert.deepEqual(validatePost({ kind: "comment", number: 5, body: "Standalone\n\n<sub>AI-assisted reply — pi (glm-5.3)</sub>" }), [
+		"kind 'comment' body carries its own AI-assistance disclosure at line 3 — the tool appends the marker; drop the line",
+	]);
+});
+
+t("threads: severity required; label one token and unique; cites non-empty; verdict and threads agree", () => {
+	const thread: PostComment = { file: "a.py", line: 3, severity: "minor", ask: "x" };
+	const noSeverity = validatePost(review("t", { comments: [{ file: "a.py", line: 3, ask: "x" } as any] }));
+	assert.deepEqual(noSeverity, ["comment on 'a.py:3' requires severity — blocking or minor"]);
+	const labels = validatePost(
+		review("t", {
+			comments: [
+					{ ...thread, label: "C1" },
+					{ ...thread, line: 4, label: "C1" },
+					{ ...thread, line: 5, label: "config contract" },
+					{ ...thread, line: 6, label: "  " },
+					{ ...thread, line: 7, cites: " " },
+				],
+		}),
+	);
+	assert.deepEqual(labels, [
+		"label 'C1' names two threads ('a.py:3', 'a.py:4') — each thread gets its own",
+		"label 'config contract' on 'a.py:5' is not one token — a label is a short id the summary text refers to (C1, R3…)",
+		"comment on 'a.py:6' has an empty label — drop the param or pass one token (C1, R3…)",
+		"comment on 'a.py:7' has an empty cites — drop the param or pass a location (path:line, a file)",
+	]);
+	assert.deepEqual(validatePost(review("t", { verdict: "clean", comments: [thread] })), ["verdict 'clean' means no findings — drop comments or pick minor or blocking"]);
+	assert.deepEqual(validatePost(review("t", { verdict: "clean" })), []);
+	assert.deepEqual(validatePost(review("t", { verdict: "minor", comments: [{ ...thread, severity: "blocking" }] })), [
+		"comment on 'a.py:3' is blocking under verdict 'minor' — pick verdict blocking or severity minor",
+	]);
+	assert.deepEqual(validatePost(review("t", { verdict: "blocking", comments: [thread] })), []); // the blocking finding may live in the summary
+	assert.deepEqual(validatePost({ kind: "comment", number: 1, body: "x", comments: [{ file: "a", line: 1, severity: "minor", ask: "y" }] })[0], "text/comments serve kind 'review' only");
+});
+
+t("anchorsOutsideDiff names the anchors whose path is not in the diffed set", () => {
+	const threads: PostParams["comments"] = [
+		{ file: "verl_omni/utils/reward_score/scorers/__init__.py", line: 29, severity: "minor", cites: "docs/api/reward.rst:104", ask: "Add the automodule block" },
+		{ file: "docs/api/reward.rst", line: 104, severity: "blocking", ask: "Add the block here" },
+	];
+	const outside = anchorsOutsideDiff(threads!, new Set(["verl_omni/utils/reward_score/scorers/__init__.py", "README.md"]));
+	assert.deepEqual(outside.map((c) => `${c.file}:${c.line}`), ["docs/api/reward.rst:104"]);
+	assert.deepEqual(anchorsOutsideDiff([], new Set()), []);
 });
 
 // --- payloads ------------------------------------------------------------------------------
 
-t("review payload pins event COMMENT, composes the verdict line, anchorless thread bodies, the footer", () => {
+t("review payload pins event COMMENT, composes the verdict line, thread bodies with severity/label/cite, the footer", () => {
 	const req = postRequest(
 		{
 			kind: "review",
@@ -96,8 +178,8 @@ t("review payload pins event COMMENT, composes the verdict line, anchorless thre
 			verdict: "minor",
 			text: "Prior round accounting stands.",
 			comments: [
-				{ file: "src/a.py", line: 53, ask: "Delete the dead branch", fact: "the producer always writes nested records" },
-				{ file: "src/b.py", line: 8, ask: "Rename the helper" },
+				{ file: "src/a.py", line: 53, severity: "minor", ask: "Delete the dead branch", fact: "the producer always writes nested records" },
+				{ file: "src/b.py", line: 8, severity: "minor", ask: "Rename the helper" },
 			],
 		},
 		repo,
@@ -109,9 +191,20 @@ t("review payload pins event COMMENT, composes the verdict line, anchorless thre
 	assert.match((req.payload as any).body, /^\*\*Verdict: minor — no blocking findings; everything below is cleanup-grade\.\*\*$/m);
 	assert.match((req.payload as any).body, /AI assistance \(pi, glm-5\.3\) was used for this review\.$/);
 	assert.deepEqual((req.payload as any).comments, [
-		{ path: "src/a.py", line: 53, body: "Delete the dead branch — the producer always writes nested records" },
-		{ path: "src/b.py", line: 8, body: "Rename the helper" },
+		{ path: "src/a.py", line: 53, body: "[minor] Delete the dead branch — the producer always writes nested records" },
+		{ path: "src/b.py", line: 8, body: "[minor] Rename the helper" },
 	]);
+	// a finding outside the diff: the anchor is the diffed export line, the cite rides the body
+	const cited = postRequest(
+		review("t", {
+			comments: [
+				{ file: "verl_omni/utils/reward_score/scorers/__init__.py", line: 29, severity: "blocking", label: "C4", cites: "docs/api/reward.rst:104", ask: "Derive the contract from config", fact: "the rules prescribe it" },
+			],
+		}),
+		repo,
+		id,
+	);
+	assert.equal((cited.payload as any).comments[0].body, "**C4** [blocking] docs/api/reward.rst:104 — Derive the contract from config — the rules prescribe it");
 });
 
 t("reply payload composes the replyText shape — quote blockquote, verdict opener, marker", () => {
@@ -124,13 +217,12 @@ t("reply payload composes the replyText shape — quote blockquote, verdict open
 	assert.throws(() => postRequest({ kind: "reply", number: 1, inReplyTo: 9, verdict: "skipped", quote: "q", answers: "a" } as PostParams, repo, id), /reason/);
 });
 
-t("comment payload appends the marker once; a body already marked is untouched", () => {
+t("comment payload appends the marker; a body already carrying one refused at validation; empty refuses", () => {
 	const c = postRequest({ kind: "comment", number: 5, body: "Standalone" }, repo, id);
 	assert.equal(c.path, "repos/verl-project/verl-omni/issues/5/comments");
 	assert.match((c.payload as any).body, /<sub>AI-assisted reply — pi \(glm-5\.3\)<\/sub>$/);
-	const marked = postRequest({ kind: "comment", number: 5, body: `Standalone\n\n<sub>AI-assisted reply — pi (glm-5.3)</sub>` }, repo, id);
-	assert.equal((marked.payload as any).body.match(/AI-assisted reply/g)?.length, 1);
-	assert.throws(() => appendMarkerIfMissing("  ", id), /empty/);
+	assert.equal(validatePost({ kind: "comment", number: 5, body: `Standalone\n\n<sub>AI-assisted reply — pi (glm-5.3)</sub>` }).length, 1);
+	assert.throws(() => appendMarker("  ", id), /empty/);
 });
 
 t("pr payloads: create posts title/head/base/body; edit patches only the given fields", () => {

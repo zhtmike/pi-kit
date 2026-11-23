@@ -6,7 +6,7 @@
  * Pure: no host imports.
  */
 
-import { ASSISTANCE_HEADING_RE, assistanceSection, replyMarker, summaryFooter, type Identity } from "./identity.ts";
+import { ASSISTANCE_HEADING_RE, ASSISTANCE_HEADING_SHAPE, assistanceSection, replyMarker, summaryFooter, type Identity } from "./identity.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -38,8 +38,22 @@ export interface ReplyInput {
 	reason?: string;
 }
 
-export function commentText(ask: string, fact?: string): string {
-	return fact !== undefined && fact.trim() !== "" ? `${ask} — ${fact}` : ask;
+export interface CommentInput {
+	severity: string;
+	label?: string;
+	cites?: string;
+	ask: string;
+	fact?: string;
+}
+
+/** The thread body: bold label, [severity], cite, then `ask — fact` (each optional part dropped when absent). */
+export function commentText(c: CommentInput): string {
+	const parts: string[] = [];
+	if (c.label !== undefined && c.label.trim() !== "") parts.push(`**${c.label.trim()}**`);
+	parts.push(`[${c.severity}]`);
+	if (c.cites !== undefined && c.cites.trim() !== "") parts.push(`${c.cites.trim()} —`);
+	parts.push(c.fact !== undefined && c.fact.trim() !== "" ? `${c.ask} — ${c.fact}` : c.ask);
+	return parts.join(" ");
 }
 
 export function replyText(r: ReplyInput, id: Identity): string {
@@ -69,20 +83,16 @@ export function replyText(r: ReplyInput, id: Identity): string {
 	return lines.join("\n");
 }
 
+/** The posted summary: verdict line, text, footer — the tool's footer is the only one (validatePost refused a text carrying its own). */
 export function summaryText(verdict: SummaryVerdict, text: string, id: Identity): string {
 	if (text.trim() === "") throw new Error("summary text is empty — compose the review body first");
-	const footer = summaryFooter(id);
-	const body = `${verdictLine(verdict)}\n\n${text.replace(/\s+$/, "")}`;
-	if (text.includes(footer)) return body;
-	return `${body}\n\n${footer}`;
+	return `${verdictLine(verdict)}\n\n${text.replace(/\s+$/, "")}\n\n${summaryFooter(id)}`;
 }
 
-/** A standalone comment/reply body carries its own disclosure — appended when missing, never doubled. */
-export function appendMarkerIfMissing(body: string, id: Identity): string {
+/** A standalone comment body carries the tool's marker — always appended (validatePost refused a body carrying its own). */
+export function appendMarker(body: string, id: Identity): string {
 	if (body.trim() === "") throw new Error("the posted body is empty — compose the text first");
-	const trimmed = body.replace(/\s+$/, "");
-	const marker = replyMarker(id);
-	return trimmed.endsWith(marker) ? trimmed : `${trimmed}\n\n${marker}`;
+	return `${body.replace(/\s+$/, "")}\n\n${replyMarker(id)}`;
 }
 
 // --- draft --------------------------------------------------------------------------
@@ -96,12 +106,15 @@ export interface DraftCheck {
 	assistanceConflict: boolean;
 }
 
+/** The line-start form of the assistance heading — what templateHeadings skips a template's own disclosure with. */
+const ASSISTANCE_HEADING_LINE_RE = new RegExp(String.raw`^${ASSISTANCE_HEADING_SHAPE}`, "i");
+
 /** Markdown headings a PR template pins (## Section / # Section lines). */
 export function templateHeadings(template: string): string[] {
 	return template
 		.split("\n")
 		.map((l) => l.trim())
-		.filter((l) => /^#{1,3}\s+\S/.test(l) && !/^#{1,3}\s*AI[- ]assistance\b/i.test(l));
+		.filter((l) => /^#{1,3}\s+\S/.test(l) && !ASSISTANCE_HEADING_LINE_RE.test(l));
 }
 
 export function checkDraft(body: string, assistance: string | undefined, template: string | undefined, id: Identity): DraftCheck {

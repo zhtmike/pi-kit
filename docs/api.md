@@ -250,17 +250,31 @@ GitHub states — accepting or rejecting a PR remains a human action.
 - kind `review`: `number`, `verdict` (`clean` — "no findings" / `minor` —
   "no blocking findings; everything below is cleanup-grade" / `blocking` —
   "blocking findings below" — register-free severity glosses, fixed),
-  `text` (the body below the verdict line: findings, coverage, accounting),
-  `comments[]` of `{file, line, ask, fact?}` — inline threads. The posted
-  summary is the verdict line, the text, and the disclosure footer
-  (`AI assistance (<agent>, <model>) was used for this review.`); each
-  posted thread body is the anchorless `ask — fact` composition (the API
-  anchors; `file:line:` is presentation, not payload). Inline threads carry
-  no marker — the review's footer discloses.
+  `text` (the body below the verdict line: findings, coverage, accounting —
+  no disclosure of its own; the footer is the tool's), `comments[]` of
+  `{file, line, severity, label?, cites?, ask, fact?}` — inline threads.
+  `severity` is `blocking` or `minor` (never `clean` — clean means no
+  threads) and opens the thread as `[severity]`; `label` is a short finding
+  id the summary text refers to (`C1`) — one token, unique across the
+  review — rendered bold before the severity; `cites` is the finding's own
+  location when it is outside the diff, rendered between the severity and
+  the ask. The posted summary is the verdict line, the text, and the
+  disclosure footer (`AI assistance (<agent>, <model>) was used for this
+  review.`); each posted thread body is `**label** [severity] cites — ask —
+  fact`, each optional part dropped when absent (the API anchors; a cite is
+  the one location that rides the body — GitHub threads diffed files only,
+  so a finding elsewhere anchors on the nearest diffed line and passes
+  `cites`; before the approval dialog, only when there are threads, every
+  anchor path is checked against the PR's diff and one outside refuses
+  naming `cites` — line placement within the file's hunks is GitHub's 422
+  at post time). Verdict and threads agree: `clean` takes no comments, a
+  `blocking` thread refuses under `minor` (`blocking` with no blocking
+  thread stands — a design-level finding lives in the summary). Inline
+  threads carry no marker — the review's footer discloses.
 - kind `comment`: `number` (PR or issue), `body` — one standalone comment
-  (free prose); the `<sub>AI-assisted reply — <agent> (<model>)</sub>`
-  marker is appended when missing (a standalone comment carries its own
-  disclosure).
+  (free prose, no disclosure of its own); the
+  `<sub>AI-assisted reply — <agent> (<model>)</sub>` marker is appended (a
+  standalone comment carries the tool's disclosure).
 - kind `reply`: `number`, `inReplyTo` (a review-comment id), `verdict`
   (`addressed`/`skipped`), `quote`, `answers`, `commit` (required for
   addressed), `reason` (required for skipped), `verification` — composes
@@ -279,7 +293,13 @@ Verdict vocabularies are fixed and kind-scoped: `clean`/`minor`/`blocking`
 serve kind review, `addressed`/`skipped` serve kind reply — a token in the
 wrong kind is an error naming both sets. The tool refuses text it cannot
 attribute (unverifiable agent → error; unverifiable model → parenthetical
-drops); a body already ending in its marker or footer never gains a second.
+drops). The tool owns every disclosure: a review text or comment body
+carrying a disclosure line — the footer sentence in any wording, a reply
+marker, an assistance heading; a finding that merely mentions assistance is
+not one — refuses naming the line, so the tool's is the only one. A reply
+still ends in its own marker exactly once: a quoted marker is the quoted
+reply's own and never suppresses it, and a reply already ending in its own
+marker never gains a second.
 
 `repo` (`owner/name`) names a target that is not the session's own —
 fork→upstream posts pass it; an unresolvable target refuses demanding it.

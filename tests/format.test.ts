@@ -21,6 +21,7 @@ import {
 	postBody,
 	postDialogBody,
 	postLaneReason,
+	postAnchorOutsideDiffReason,
 	postRepoUnresolvedReason,
 	uncoveredReason,
 	worktreeNextHint,
@@ -119,6 +120,11 @@ t("post bodies: target, url, submitted, approval — in that order; lane and rep
 	assert.match(postLaneReason(), /refuses in a dispatched lane/);
 	assert.match(postRepoUnresolvedReason(), /pass repo \('owner\/name'\)/);
 	assert.match(postDialogBody("owner/repo#12", "summary 100 chars + 2 inline threads"), /^pi-kit: post to GitHub\?\nowner\/repo#12\nsummary 100 chars \+ 2 inline threads$/);
+	assert.equal(
+		postAnchorOutsideDiffReason(["docs/api/reward.rst:104"]),
+		"comment on 'docs/api/reward.rst:104' anchors outside the diff — GitHub threads diffed files only; anchor on the nearest diffed line (file/line) and pass cites for the finding's own location",
+	);
+	assert.match(postAnchorOutsideDiffReason(["a.rst:1", "b.md:2"]), /^comments on 'a\.rst:1', 'b\.md:2' anchor outside the diff — GitHub threads diffed files only/);
 });
 
 process.exit(failures === 0 ? 0 : 1);

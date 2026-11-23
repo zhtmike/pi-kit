@@ -213,6 +213,12 @@ export function postPrNoAssistanceReason(): string {
 	return "the PR body carries no AI-assistance section — draft composes and checks it; run draft (it appends or requires the section), then post the checked body";
 }
 
+/** post's diffed-anchor refusal (kind review, before the approval dialog) — GitHub threads diffed files only. */
+export function postAnchorOutsideDiffReason(anchors: string[]): string {
+	const what = anchors.length === 1 ? `comment on '${anchors[0]}' anchors` : `comments on ${anchors.map((a) => `'${a}'`).join(", ")} anchor`;
+	return `${what} outside the diff — GitHub threads diffed files only; anchor on the nearest diffed line (file/line) and pass cites for the finding's own location`;
+}
+
 /** The post dialog — target and what submits, capped (the full texts live in the conversation). */
 export function postDialogBody(target: string, submitted: string): string {
 	return ["pi-kit: post to GitHub?", target, submitted].join("\n");

@@ -44,7 +44,21 @@ export function assistanceSection(id: Identity, assistance: string): string {
 	return `## AI assistance\n\n${assistance.trim()}\n\n${line}`;
 }
 
-export const ASSISTANCE_HEADING_RE = /(^|\n)#{1,3}\s*AI[- ]assistance\b/i;
+export const ASSISTANCE_HEADING_SHAPE = String.raw`#{1,3}\s*AI[- ]assistance\b`;
+
+export const ASSISTANCE_HEADING_RE = new RegExp(String.raw`(^|\n)${ASSISTANCE_HEADING_SHAPE}`, "i");
+
+/** A line that IS a disclosure, anchored at line start (an optional list bullet or emphasis wrap before it): the review footer in any wording, the reply marker, or an assistance heading — a finding that merely mentions assistance is none. */
+export const DISCLOSURE_LINE_RE = new RegExp(
+	String.raw`^(?:[-*]\s*)?(?:[_*]*AI assistance\b.*\bwas used for this review|<sub>AI-assisted reply\b|${ASSISTANCE_HEADING_SHAPE})`,
+	"i",
+);
+
+/** The 1-based line of the first disclosure line in a caller's text; undefined when none — the tool's disclosure is the only one, so a text carrying its own refuses. */
+export function disclosureLine(text: string): number | undefined {
+	const i = text.split("\n").findIndex((l) => DISCLOSURE_LINE_RE.test(l.trim()));
+	return i === -1 ? undefined : i + 1;
+}
 
 /** A commit's full message: subject, blank-separated body, then the trailer block as its own paragraph (identity trailers first, caller trailers after — never dropped). */
 export function commitMessage(params: { subject: string; body?: string; trailers?: string[] }, id: Identity): string {

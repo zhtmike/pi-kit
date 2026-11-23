@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.0 — 2026-11-23
+
+The review thread contract: the tool owns the disclosure; threads carry
+severity, a label, and a cite.
+
+- **A review posted two AI-assistance footnotes** — the review text ended
+  with a hand-written footer (`AI assistance (pi, zai/glm-5.4; research
+  lanes …) was used for this review.`), `post`'s exact-match check missed
+  the variant and appended its own (verl-omni#933). The tool now owns every
+  disclosure: a review text or comment body carrying a disclosure line —
+  the footer sentence in any wording, a reply marker, an assistance
+  heading — refuses naming the line; the exact-match tolerances are gone.
+  A finding that merely mentions assistance passes.
+- **Inline threads carried no severity** — a reader could not separate
+  blocking asks from cleanup without the summary. Every thread passes
+  `severity` (`blocking` | `minor`) and opens with it; the verdict and the
+  threads agree (`clean` takes no comments; a `blocking` thread refuses
+  under `minor`).
+- **Finding lettering did not resolve** — the summary's "Fix direction
+  (C1–C7)" had no counterpart on the threads, so the lettering was
+  rewritten away. `label` is a short finding id the summary refers to — one
+  token, unique per review — rendered bold: `**C1** [blocking] ask — fact`.
+- **A finding outside the diff was mis-anchored by hand** — GitHub threads
+  diffed files only; a finding on `docs/api/reward.rst:104` was anchored
+  on a diffed export line with the cite hand-placed in the ask and the
+  deviation narrated (verl-omni#925). `cites` names the finding's own
+  location and renders between the severity and the ask; before the
+  approval dialog, only when there are threads, every anchor path is
+  checked against the PR's diff (one `gh api …/files` read) — an anchor
+  outside refuses naming `cites` instead of GitHub's 422 after the
+  approval.
+
 ## 0.5.0 — 2026-11-23
 
 The posting audit: one tool composes and posts every review surface; verdicts standardized.

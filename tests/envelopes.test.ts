@@ -21,10 +21,13 @@ const bareId = identityFrom("pi", { id: "glm-5.3" });
 const noModel = identityFrom("pi", undefined);
 
 // --- comment ------------------------------------------------------------------------------
-t("comment: the ask, then at most one fact", () => {
-	assert.equal(commentText("Drop the fallback"), "Drop the fallback");
-	assert.equal(commentText("Drop the fallback", "src/b.ts:10 does the same check"), "Drop the fallback — src/b.ts:10 does the same check");
-	assert.equal(commentText("Drop it", "  "), "Drop it");
+t("comment: [severity], then ask — fact; label bold before, cite between", () => {
+	assert.equal(commentText({ severity: "minor", ask: "Drop the fallback" }), "[minor] Drop the fallback");
+	assert.equal(commentText({ severity: "blocking", ask: "Drop the fallback", fact: "src/b.ts:10 does the same check" }), "[blocking] Drop the fallback — src/b.ts:10 does the same check");
+	assert.equal(commentText({ severity: "minor", ask: "Drop it", fact: "  " }), "[minor] Drop it");
+	assert.equal(commentText({ severity: "minor", label: "C1", ask: "Drop the fallback" }), "**C1** [minor] Drop the fallback");
+	assert.equal(commentText({ severity: "minor", cites: "docs/x.rst:104", ask: "Add the block" }), "[minor] docs/x.rst:104 — Add the block");
+	assert.equal(commentText({ severity: "blocking", label: " C4 ", cites: "docs/x.rst:104", ask: "Add the block", fact: "every other scorer is listed" }), "**C4** [blocking] docs/x.rst:104 — Add the block — every other scorer is listed");
 });
 
 // --- reply --------------------------------------------------------------------------------
@@ -60,7 +63,7 @@ t("marker drops the model parenthetical when unverifiable; small-print wrap alwa
 });
 
 // --- summary ------------------------------------------------------------------------------
-t("summary opens with the standardized verdict line, closes with the footer; no double footer", () => {
+t("summary opens with the standardized verdict line, closes with the tool's footer", () => {
 	const text = summaryText("minor", "Prior round accounting stands.", id);
 	assert.match(text, /^\*\*Verdict: minor — no blocking findings; everything below is cleanup-grade\.\*\*\n\nPrior round accounting stands\./);
 	assert.match(text, /AI assistance \(pi, glm-5\.3\) was used for this review\.$/);
