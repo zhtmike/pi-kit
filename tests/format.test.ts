@@ -22,7 +22,10 @@ import {
 	postDialogBody,
 	postLaneReason,
 	postAnchorOutsideDiffReason,
+	postAnchorDeletedReason,
+	postGhFailedReason,
 	postRepoUnresolvedReason,
+	postThreadAnchors,
 	uncoveredReason,
 	worktreeNextHint,
 } from "../src/format.ts";
@@ -125,6 +128,39 @@ t("post bodies: target, url, submitted, approval — in that order; lane and rep
 		"comment on 'docs/api/reward.rst:104' anchors outside the diff — GitHub threads diffed files only; anchor on the nearest diffed line (file/line) and pass cites for the finding's own location",
 	);
 	assert.match(postAnchorOutsideDiffReason(["a.rst:1", "b.md:2"]), /^comments on 'a\.rst:1', 'b\.md:2' anchor outside the diff — GitHub threads diffed files only/);
+	assert.equal(
+		postAnchorDeletedReason(["removed.py:1"]),
+		"comment on 'removed.py:1' anchors in a file with no diffed line to thread — its changes are removals only; anchor in a diffed file and pass cites for the finding's own location",
+	);
+});
+
+t("post's thread list names each moved anchor; the gh failure keeps GitHub's body and adds the anchor remedy only for a threaded 4xx", () => {
+	const threads = [
+		{ file: "a.md", line: 553, severity: "minor" as const, ask: "x" },
+		{ file: "b.py", line: 36, severity: "minor" as const, ask: "y" },
+	];
+	assert.equal(postThreadAnchors(threads, [{ index: 0, from: 3, to: 553 }]), "a.md:553 (was :3), b.py:36");
+	assert.equal(postThreadAnchors(threads, []), "a.md:553, b.py:36");
+	assert.equal(postThreadAnchors([], []), "");
+	const seven = Array.from({ length: 7 }, (_, i) => ({ file: `f${i}`, line: i + 1, severity: "minor" as const, ask: "x" }));
+	assert.equal(postThreadAnchors(seven, []), "f0:1, f1:2, f2:3, f3:4, f4:5, …");
+
+	const body = '{\n  "message": "Validation Failed",\n  "errors": [\n    {\n      "field": "comments[data][line]",\n      "code": "invalid"\n    }\n  ]\n}';
+	const gh = postGhFailedReason("POST", "repos/o/r/pulls/947/reviews", 1, "gh: Unprocessable Entity (HTTP 422)\n", body, 3);
+	const lines = gh.split("\n");
+	assert.equal(lines.length, 3);
+	assert.equal(lines[0], "gh api POST repos/o/r/pulls/947/reviews failed (exit 1): gh: Unprocessable Entity (HTTP 422)");
+	assert.equal(lines[1], "GitHub: Validation Failed — comments[data][line]: invalid");
+	assert.match(lines[2], /^Threads anchor on the PR diff's right-side lines at its current head/);
+	// no threads, or not a 4xx: no anchor remedy (the body still shows); a stdout-only failure still shows its line
+	assert.equal(
+		postGhFailedReason("POST", "repos/o/r/issues/1/comments", 1, "gh: Unprocessable Entity (HTTP 422)\n", '{"message":"Validation Failed"}', 0),
+		"gh api POST repos/o/r/issues/1/comments failed (exit 1): gh: Unprocessable Entity (HTTP 422)\nGitHub: Validation Failed",
+	);
+	const serverError = postGhFailedReason("POST", "repos/o/r/pulls/947/reviews", 1, "gh: Internal Server Error (HTTP 500)\n", body, 3).split("\n");
+	assert.equal(serverError.length, 2);
+	assert.equal(serverError[1], "GitHub: Validation Failed — comments[data][line]: invalid");
+	assert.equal(postGhFailedReason("POST", "repos/o/r/pulls", 1, "", "raw failure text", 2), "gh api POST repos/o/r/pulls failed (exit 1): raw failure text");
 });
 
 process.exit(failures === 0 ? 0 : 1);

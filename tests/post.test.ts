@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { appendMarker } from "../src/envelopes.ts";
 import { identityFrom } from "../src/identity.ts";
-import { anchorsOutsideDiff, checkPrBody, postRequest, validatePost, type PostComment, type PostParams } from "../src/post.ts";
+import {
+	anchorsOutsideDiff,
+	checkPrBody,
+	githubErrorMessage,
+	parseDiffedFiles,
+	postRequest,
+	rightSideLines,
+	settleAnchors,
+	validatePost,
+	type DiffedFile,
+	type PostComment,
+	type PostParams,
+} from "../src/post.ts";
 
 let failures = 0;
 const t = (name: string, fn: () => void) => {
@@ -166,6 +178,92 @@ t("anchorsOutsideDiff names the anchors whose path is not in the diffed set", ()
 	const outside = anchorsOutsideDiff(threads!, new Set(["verl_omni/utils/reward_score/scorers/__init__.py", "README.md"]));
 	assert.deepEqual(outside.map((c) => `${c.file}:${c.line}`), ["docs/api/reward.rst:104"]);
 	assert.deepEqual(anchorsOutsideDiff([], new Set()), []);
+});
+
+// --- thread anchors against the PR diff ----------------------------------------------------
+
+const PATCH = [
+	"@@ -553,7 +553,9 @@ Deploy the Thinker",
+	" ctx 553",
+	" ctx 554",
+	"-old 555",
+	"+new 555",
+	"+new 556",
+	" ctx 557",
+	" ctx 558",
+	"@@ -600,3 +602,3 @@",
+	" ctx 602",
+	"+new 603",
+	" ctx 604",
+	"\\ No newline at end of file",
+	"",
+].join("\n");
+const files = (): DiffedFile[] => [
+	{ filename: "docs/config.md", patch: PATCH },
+	{ filename: "removed.py", patch: "@@ -1,2 +0,0 @@\n-a\n-b" },
+	{ filename: "trimmed.py", patch: "@@ -10,3 +9,0 @@\n-a\n-b\n-c" },
+	{ filename: "renamed.md" },
+];
+
+t("parseDiffedFiles reads the --jq lines; a line that is not JSON or lacks a filename names itself", () => {
+	const stdout = '{"filename":"a.py","patch":"@@ -1 +1 @@\\n+x"}\n{"filename":"b.png"}\n\n';
+	assert.deepEqual(parseDiffedFiles(stdout), [
+		{ filename: "a.py", patch: "@@ -1 +1 @@\n+x" },
+		{ filename: "b.png" },
+	]);
+	assert.deepEqual(parseDiffedFiles(""), []);
+	assert.throws(() => parseDiffedFiles('{"filename":"a.py"}\nnot json'), /files page line 2 is not JSON: not json/);
+	assert.throws(() => parseDiffedFiles('{"patch":"x"}'), /files page line 1 carries no filename/);
+});
+
+t("rightSideLines: context and added lines, never removed; hunks chain; a deleted file has none", () => {
+	assert.deepEqual(rightSideLines(PATCH), [553, 554, 555, 556, 557, 558, 602, 603, 604]);
+	assert.deepEqual(rightSideLines("@@ -0,0 +1,2 @@\n+x\n+y"), [1, 2]);
+	assert.deepEqual(rightSideLines("@@ -1,2 +0,0 @@\n-a\n-b"), []);
+});
+
+t("settleAnchors: a line outside the hunks moves to the nearest diffed line, citing the requested one; diffed lines and unrendered files pass; removals-only files refuse", () => {
+	const settled = settleAnchors(
+		[
+			{ file: "docs/config.md", line: 3, severity: "minor", ask: "stale header" },
+			{ file: "docs/config.md", line: 560, severity: "minor", label: "C2", cites: "README.md:7", ask: "cite kept" },
+			{ file: "docs/config.md", line: 557, severity: "blocking", ask: "in the hunk" },
+			{ file: "renamed.md", line: 900, severity: "minor", ask: "unverifiable" },
+		],
+		files(),
+	);
+	assert.deepEqual(settled.unanchorable, []);
+	assert.deepEqual(settled.comments, [
+		{ file: "docs/config.md", line: 553, severity: "minor", cites: "docs/config.md:3", ask: "stale header" },
+		{ file: "docs/config.md", line: 558, severity: "minor", label: "C2", cites: "README.md:7", ask: "cite kept" },
+		{ file: "docs/config.md", line: 557, severity: "blocking", ask: "in the hunk" },
+		{ file: "renamed.md", line: 900, severity: "minor", ask: "unverifiable" },
+	]);
+	assert.deepEqual(settled.moved, [
+		{ index: 0, from: 3, to: 553 },
+		{ index: 1, from: 560, to: 558 },
+	]);
+	const noLine = settleAnchors(
+		[
+			{ file: "removed.py", line: 1, severity: "minor", ask: "deleted file" },
+			{ file: "trimmed.py", line: 9, severity: "minor", ask: "live file, removals only" },
+		],
+		files(),
+	);
+	assert.deepEqual(noLine.unanchorable.map((c) => `${c.file}:${c.line}`), ["removed.py:1", "trimmed.py:9"]);
+	assert.deepEqual(noLine.comments, []);
+});
+
+t("githubErrorMessage: a 4xx body compresses to message + field: code; anything else is undefined", () => {
+	assert.equal(
+		githubErrorMessage('{\n  "message": "Validation Failed",\n  "errors": [\n    {\n      "resource": "PullRequestReview",\n      "field": "comments[data][line]",\n      "code": "invalid"\n    }\n  ]\n}'),
+		"Validation Failed — comments[data][line]: invalid",
+	);
+	assert.equal(githubErrorMessage('{\n  "message": "Not Found",\n  "status": "404"\n}'), "Not Found");
+	assert.equal(githubErrorMessage('{"message":"Validation Failed","errors":[{"message":"line must be part of the diff"}]}'), "Validation Failed — line must be part of the diff");
+	assert.equal(githubErrorMessage('{"id":1,"html_url":"https://x"}'), undefined);
+	assert.equal(githubErrorMessage(""), undefined);
+	assert.equal(githubErrorMessage("gh: Not Found (HTTP 404)"), undefined);
 });
 
 // --- payloads ------------------------------------------------------------------------------

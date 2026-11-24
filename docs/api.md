@@ -262,12 +262,19 @@ GitHub states — accepting or rejecting a PR remains a human action.
   disclosure footer (`AI assistance (<agent>, <model>) was used for this
   review.`); each posted thread body is `**label** [severity] cites — ask —
   fact`, each optional part dropped when absent (the API anchors; a cite is
-  the one location that rides the body — GitHub threads diffed files only,
-  so a finding elsewhere anchors on the nearest diffed line and passes
-  `cites`; before the approval dialog, only when there are threads, every
-  anchor path is checked against the PR's diff and one outside refuses
-  naming `cites` — line placement within the file's hunks is GitHub's 422
-  at post time). Verdict and threads agree: `clean` takes no comments, a
+  the one location that rides the body — GitHub threads diffed lines
+  only, so a finding elsewhere anchors on the nearest diffed line and
+  passes `cites`; before the approval dialog, only when there are
+  threads, every anchor is checked against the PR's diff — the files
+  endpoint's patches: a path outside refuses naming `cites`, a thread in
+  a file with no diffed line — deleted, or removals only — refuses the
+  same way, and a line outside the
+  file's hunks moves to the nearest diffed line, the requested
+  `file:line` becoming its `cites` when it carried none — the dialog and
+  the result name each move, `a.md:553 (was :3)`. A file without a
+  rendered patch — binary, oversized, a pure rename — is not
+  line-checked; GitHub's 422 then surfaces with its error body and the
+  remedy). Verdict and threads agree: `clean` takes no comments, a
   `blocking` thread refuses under `minor` (`blocking` with no blocking
   thread stands — a design-level finding lives in the summary). Inline
   threads carry no marker — the review's footer discloses.

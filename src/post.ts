@@ -173,6 +173,114 @@ export function anchorsOutsideDiff(comments: PostComment[], diffedPaths: Set<str
 	return comments.filter((c) => !diffedPaths.has(c.file));
 }
 
+/** One file of the PR diff as the files endpoint returns it — `patch` is the unified diff, absent when GitHub does not render it (binary, oversized, a pure rename). */
+export interface DiffedFile {
+	filename: string;
+	patch?: string;
+}
+
+/** The files pages as `gh api --paginate --jq '.[] | {filename, patch}'` prints them — one JSON object per line; a line that is not one names itself. */
+export function parseDiffedFiles(stdout: string): DiffedFile[] {
+	return stdout
+		.split("\n")
+		.filter((l) => l.trim() !== "")
+		.map((l, i) => {
+			let v: Partial<DiffedFile>;
+			try {
+				v = JSON.parse(l);
+			} catch (e) {
+				throw new Error(`files page line ${i + 1} is not JSON: ${l.slice(0, 200)}`, { cause: e });
+			}
+			if (typeof v.filename !== "string" || v.filename === "") throw new Error(`files page line ${i + 1} carries no filename: ${l.slice(0, 200)}`);
+			const f: DiffedFile = { filename: v.filename };
+			if (typeof v.patch === "string") f.patch = v.patch;
+			return f;
+		});
+}
+
+const HUNK_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
+
+/** The head-side line numbers a unified patch shows — context and added lines; a removed line has no right-side number, so no thread anchors there. Ascending. */
+export function rightSideLines(patch: string): number[] {
+	const raw = patch.split("\n");
+	if (raw[raw.length - 1] === "") raw.pop();
+	const lines: number[] = [];
+	let right: number | undefined;
+	for (const l of raw) {
+		const hunk = HUNK_RE.exec(l);
+		if (hunk !== null) {
+			right = Number(hunk[1]);
+			continue;
+		}
+		if (right !== undefined && !l.startsWith("\\") && !l.startsWith("-")) lines.push(right++);
+	}
+	return lines;
+}
+
+/** A thread re-anchored by settleAnchors — `index` is the thread's place in the comments array. */
+export interface AnchorMove {
+	index: number;
+	from: number;
+	to: number;
+}
+
+export interface SettledAnchors {
+	/** The threads as they post — a moved thread carries the nearest diffed line and, when it had none, `cites` naming the requested one. */
+	comments: PostComment[];
+	moved: AnchorMove[];
+	/** Threads in a file with no right-side line — deleted, or removals only; the caller anchors in a diffed file instead. */
+	unanchorable: PostComment[];
+}
+
+/** Settles each thread onto a line GitHub threads: one outside the file's hunks moves to the nearest diffed line. A file without a patch is not line-checked (GitHub omits the hunks it does not render). */
+export function settleAnchors(comments: PostComment[], files: DiffedFile[]): SettledAnchors {
+	const right = new Map(files.filter((f) => f.patch !== undefined).map((f) => [f.filename, rightSideLines(f.patch!)] as const));
+	const settled: SettledAnchors = { comments: [], moved: [], unanchorable: [] };
+	comments.forEach((c, index) => {
+		const lines = right.get(c.file);
+		if (lines === undefined || lines.includes(c.line)) {
+			settled.comments.push(c);
+			return;
+		}
+		if (lines.length === 0) {
+			settled.unanchorable.push(c);
+			return;
+		}
+		const to = lines.reduce((best, n) => (Math.abs(n - c.line) < Math.abs(best - c.line) ? n : best));
+		settled.comments.push({ ...c, line: to, cites: c.cites ?? `${c.file}:${c.line}` });
+		settled.moved.push({ index, from: c.line, to });
+	});
+	return settled;
+}
+
+/** GitHub's 4xx body — gh prints it to stdout before its status line — as one line: the message, then each error's `field: code` (its own message when it names neither); undefined when stdout is not that body. */
+export function githubErrorMessage(stdout: string): string | undefined {
+	const s = stdout.trim();
+	if (!s.startsWith("{")) return undefined;
+	let body: unknown;
+	try {
+		body = JSON.parse(s);
+	} catch {
+		return undefined;
+	}
+	if (typeof body !== "object" || body === null) return undefined;
+	const { message, errors } = body as { message?: unknown; errors?: unknown };
+	const parts: string[] = [];
+	if (typeof message === "string" && message !== "") parts.push(message);
+	for (const e of Array.isArray(errors) ? errors : []) {
+		if (typeof e === "string") {
+			parts.push(e);
+			continue;
+		}
+		if (typeof e !== "object" || e === null) continue;
+		const { field, code, message: own } = e as { field?: unknown; code?: unknown; message?: unknown };
+		const named = [field, code].filter((x): x is string => typeof x === "string").join(": ");
+		if (named !== "") parts.push(typeof own === "string" ? `${named} — ${own}` : named);
+		else if (typeof own === "string") parts.push(own);
+	}
+	return parts.length === 0 ? undefined : parts.join(" — ");
+}
+
 /** The exact REST call each kind makes; texts compose here — verdict line, reply shape, disclosures. */
 export function postRequest(p: PostParams, repo: { owner: string; name: string }, id: Identity): PostRequest {
 	const base = `repos/${repo.owner}/${repo.name}`;

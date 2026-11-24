@@ -8,6 +8,8 @@
  * tool schemas stay lean (docs/api.md's minimal-descriptions contract).
  */
 
+import { githubErrorMessage, type AnchorMove, type PostComment } from "./post.ts";
+
 /** Wrap one chained next-step hint — appended to a result only when the step is real for the caller. */
 function nextHint(text: string): string {
 	return `[next: ${text}]`;
@@ -219,6 +221,21 @@ export function postAnchorOutsideDiffReason(anchors: string[]): string {
 	return `${what} outside the diff — GitHub threads diffed files only; anchor on the nearest diffed line (file/line) and pass cites for the finding's own location`;
 }
 
+/** post's no-diffed-line refusal (kind review, before the approval dialog) — a file whose every hunk line is a removal (deleted, or trimmed) has no line to thread. */
+export function postAnchorDeletedReason(anchors: string[]): string {
+	const what = anchors.length === 1 ? `comment on '${anchors[0]}' anchors` : `comments on ${anchors.map((a) => `'${a}'`).join(", ")} anchor`;
+	return `${what} in a file with no diffed line to thread — its changes are removals only; anchor in a diffed file and pass cites for the finding's own location`;
+}
+
+/** The review's threads as the dialog and the result list them — the first five, each moved thread naming the line it was requested at. */
+export function postThreadAnchors(threads: PostComment[], moved: AnchorMove[]): string {
+	const anchors = threads.slice(0, 5).map((c, i) => {
+		const from = moved.find((m) => m.index === i)?.from;
+		return `${c.file}:${c.line}${from === undefined ? "" : ` (was :${from})`}`;
+	});
+	return anchors.join(", ") + (threads.length > 5 ? ", …" : "");
+}
+
 /** The post dialog — target and what submits, capped (the full texts live in the conversation). */
 export function postDialogBody(target: string, submitted: string): string {
 	return ["pi-kit: post to GitHub?", target, submitted].join("\n");
@@ -226,6 +243,19 @@ export function postDialogBody(target: string, submitted: string): string {
 
 export function postBody(kind: string, target: string, url: string, submitted: string, approvalSource: string): string {
 	return [`posted ${kind} → ${target}`, url, `submitted: ${submitted}`, `approval: ${approvalSource}`].join("\n");
+}
+
+/** post's gh call failure — gh's status line, GitHub's error body when it carried one (gh prints it to stdout), and the anchor remedy when a threaded review came back HTTP 4xx. */
+export function postGhFailedReason(method: string, path: string, exitCode: number, stderr: string, stdout: string, threads: number): string {
+	const parts = [`gh api ${method} ${path} failed (exit ${exitCode}): ${(stderr.trim() || stdout.trim()).slice(0, 300)}`];
+	const body = githubErrorMessage(stdout);
+	if (body !== undefined) parts.push(`GitHub: ${body.slice(0, 500)}`);
+	if (threads > 0 && /HTTP 4\d\d/.test(stderr)) {
+		parts.push(
+			"Threads anchor on the PR diff's right-side lines at its current head: commits landed since the pre-check, or a file whose patch the files endpoint omits (binary, oversized, a pure rename — never line-checked), leave a line GitHub will not thread. Re-run post (the pre-check re-fetches the diff) or anchor on a diffed line and pass cites.",
+		);
+	}
+	return parts.join("\n");
 }
 
 export function commitDivergedBody(bound: string, landed: string): string {

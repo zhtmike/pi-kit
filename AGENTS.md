@@ -31,7 +31,7 @@ The full reference never enters context.
 - `src/claim.ts` / `src/claimrun.ts` / `src/stamp.ts` — claim rows, runner, stamp/lock IO
 - `src/approvals.ts` — the gate-action vocabulary, shape→action map, session-approval record/replay core (pure; recognition is the agent's judgment via `approve`)
 - `src/envelopes.ts` — review-surface shapes (verdict vocabularies, markers, footers), PR-template discovery, remote-URL parsing (pure)
-- `src/post.ts` — the post tool's pure core: kind validation, text composition, and the REST payloads, the review event pinned to COMMENT (pure)
+- `src/post.ts` — the post tool's pure core: kind validation, text composition, thread anchors settled against the PR diff's hunks, and the REST payloads, the review event pinned to COMMENT (pure)
 - `src/identity.ts` — agent/model identity, trailers, commit messages, markers, disclosures (pure)
 - `src/format.ts` — every composite human-facing text: result bodies, dialog bodies, `[next: …]` hints, footer labels (pure; decision-attached reasons stay with their decisions in claim/classify)
 - `src/binds.ts` — `.pi/REVIEW_BINDS.json` under the lock discipline

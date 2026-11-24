@@ -34,7 +34,7 @@ import {
 	type ExecFn,
 } from "./githelp.ts";
 import { checkDraft, isGithubHost, parseRemoteUrl, readTemplate } from "./envelopes.ts";
-import { anchorsOutsideDiff, checkPrBody, postRequest, validatePost, type PostParams } from "./post.ts";
+import { anchorsOutsideDiff, checkPrBody, parseDiffedFiles, postRequest, settleAnchors, validatePost, type AnchorMove, type PostComment, type PostParams } from "./post.ts";
 import { setStatusPart, bindStatusSink } from "./status.ts";
 import { readStamp, stampPath, unlinkIfOurs } from "./stamp.ts";
 import { expandShellPath, slugify, UNEXPANDED_RE } from "./util.ts";
@@ -662,7 +662,7 @@ export default function (pi: ExtensionAPI) {
 				Type.Array(
 					Type.Object({
 						file: Type.String({ description: "The thread's anchor — a path in the PR diff, as the PR diff shows it; GitHub threads diffed files only, so a finding elsewhere anchors on the nearest diffed line and passes cites" }),
-						line: Type.Number({ description: "The line the thread anchors to (right side)", minimum: 1 }),
+						line: Type.Number({ description: "The line the thread anchors to (right side); outside the file's hunks it moves to the nearest diffed line", minimum: 1 }),
 						severity: stringEnum(["blocking", "minor"] as const, { description: "The finding's severity — the thread opens with it" }),
 						label: Type.Optional(Type.String({ description: "A short finding id the summary text refers to (C1, R3) — one token, unique across the review" })),
 						cites: Type.Optional(Type.String({ description: "The finding's own location when it is outside the diff (path:line, a file) — rendered before the ask" })),
@@ -706,18 +706,26 @@ export default function (pi: ExtensionAPI) {
 			const [owner, repoName] = targetIdent.split("/");
 			const target = `${targetIdent}${params.number !== undefined ? `#${params.number}` : ""}`;
 
-			// GitHub threads diffed files only — an anchor outside refuses before the ask, naming cites.
+			// GitHub threads diffed files and lines only: an anchor in an undiffed file, or one with no diffed line, refuses before the ask;
+			// one on an undiffed line of a diffed file settles onto the nearest diffed line, citing the requested one.
+			let threads: PostComment[] = params.comments ?? [];
+			let moved: AnchorMove[] = [];
 			if (params.kind === "review" && params.comments !== undefined && params.comments.length > 0) {
-				const filesPath = `repos/${owner}/${repoName}/pulls/${params.number}/files`;
-				const files = await pi.exec("gh", ["api", filesPath, "--paginate", "--jq", ".[].filename"], { timeout: 60_000 });
-				if (files.code !== 0) throw new Error(`gh api GET ${filesPath} failed (exit ${files.code}): ${(files.stderr.trim() || files.stdout.trim()).slice(0, 500)}`);
-				const diffed = new Set(files.stdout.split("\n").map((l) => l.trim()).filter((l) => l !== ""));
-				const outside = anchorsOutsideDiff(params.comments, diffed);
+				const filesPath = `repos/${owner}/${repoName}/pulls/${params.number}/files?per_page=100`;
+				const files = await pi.exec("gh", ["api", filesPath, "--paginate", "--jq", ".[] | {filename, patch}"], { timeout: 60_000 });
+				if (files.code !== 0) throw new Error(F.postGhFailedReason("GET", filesPath, files.code, files.stderr, files.stdout, 0));
+				const diffed = parseDiffedFiles(files.stdout);
+				const outside = anchorsOutsideDiff(params.comments, new Set(diffed.map((f) => f.filename)));
 				if (outside.length > 0) throw new Error(F.postAnchorOutsideDiffReason(outside.map((c) => `${c.file}:${c.line}`)));
+				const settled = settleAnchors(params.comments, diffed);
+				if (settled.unanchorable.length > 0) throw new Error(F.postAnchorDeletedReason(settled.unanchorable.map((c) => `${c.file}:${c.line}`)));
+				threads = settled.comments;
+				moved = settled.moved;
 			}
 
 			// kind pr: the draft envelope at the posting boundary (body checks run when a body posts) + create's head/base defaults.
 			const p: PostParams = { ...params };
+			if (params.kind === "review") p.comments = threads;
 			if (params.kind === "pr") {
 				const treeRoot = await gitRootOf(exec, ctx.cwd ?? process.cwd());
 				if (params.body !== undefined) {
@@ -739,8 +747,7 @@ export default function (pi: ExtensionAPI) {
 			const identity = identityFrom(cfg.agentName, ctx.model as any);
 			const req = postRequest(p, { owner, name: repoName }, identity);
 			// What was SUBMITTED (the request) — response echoes are not verification.
-			const threads = p.comments ?? [];
-			const anchors = threads.slice(0, 5).map((c) => `${c.file}:${c.line}`).join(", ") + (threads.length > 5 ? ", …" : "");
+			const anchors = F.postThreadAnchors(threads, moved);
 			const submitted =
 				p.kind === "review"
 					? `summary ${String(req.payload.body).length} chars + ${threads.length} inline threads${anchors !== "" ? ` (${anchors})` : ""}`
@@ -783,7 +790,7 @@ export default function (pi: ExtensionAPI) {
 				const file = path.join(dir, "payload.json");
 				fs.writeFileSync(file, JSON.stringify(req.payload));
 				const r = await pi.exec("gh", ["api", "-X", req.method, req.path, "--input", file], { timeout: 60_000 });
-				if (r.code !== 0) throw new Error(`gh api ${req.method} ${req.path} failed (exit ${r.code}): ${(r.stderr.trim() || r.stdout.trim()).slice(0, 500)}`);
+				if (r.code !== 0) throw new Error(F.postGhFailedReason(req.method, req.path, r.code, r.stderr, r.stdout, threads.length));
 				let resp: { html_url?: unknown };
 				try {
 					resp = JSON.parse(r.stdout);

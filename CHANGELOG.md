@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.0 — 2026-11-24
+
+Thread anchors settle onto the diff; GitHub's error body reaches the result.
+
+- **A thread on an undiffed line reached GitHub and 422'd** — the pre-check
+  compared only anchor *paths* against `…/pulls/<n>/files` and dropped the
+  `patch` in the same response, so `docs/examples/config.md:3` passed (the
+  file was diffed, its hunk at 553-561) and the review died after the
+  approval (verl-omni#947). A line outside the file's hunks now settles
+  onto the nearest diffed line, the requested `file:line` becoming the
+  thread's `cites` when it carried none; the dialog and the result name
+  each move (`config.md:553 (was :3)`). A thread in a file with no diffed
+  line to anchor — deleted, or removals only — refuses.
+- **The 422 said nothing** — the failure line took `stderr || stdout`, but
+  `gh api` prints GitHub's JSON error body to stdout and only
+  `gh: Unprocessable Entity (HTTP 422)` to stderr, so the field GitHub
+  named was discarded and diagnosing took an extra diff read. The failure
+  now carries GitHub's body (`Validation Failed — comments[data][line]:
+  invalid`) and, for a threaded review's 4xx, the remedy; a file without a
+  rendered patch (binary, oversized, a pure rename) stays uncheckable.
+
 ## 0.6.0 — 2026-11-23
 
 The review thread contract: the tool owns the disclosure; threads carry
