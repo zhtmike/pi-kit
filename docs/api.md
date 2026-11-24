@@ -187,7 +187,12 @@ domain, fixed rather than derived from the model's baseUrl; commits before
 0.4.1 carry the provider-domain address, so GitHub splits the co-author
 avatar row across the change), caller trailers ride along — the identity
 trailers are injected automatically (the `trailers` param says so; pass
-only the rest).
+only the rest). The tool owns the disclosure: a subject, body, or trailer
+line carrying its own — the footer sentence (`AI assistance … was used
+…`, whatever its purpose), an
+`AI-assistance:` trailer, the agent's own `Co-authored-by` — refuses
+naming the line and the trailers the tool injects, so a landed message
+never carries the footnote twice; a human co-author's trailer passes.
 It does **not** run the fresh review — `commit-gate` still does,
 before this tool is called; its reviewer lane uses the fast read-only
 model at high thinking (the judgment model at maximum thinking only for
@@ -301,7 +306,8 @@ serve kind review, `addressed`/`skipped` serve kind reply — a token in the
 wrong kind is an error naming both sets. The tool refuses text it cannot
 attribute (unverifiable agent → error; unverifiable model → parenthetical
 drops). The tool owns every disclosure: a review text or comment body
-carrying a disclosure line — the footer sentence in any wording, a reply
+carrying a disclosure line — the footer sentence (`AI assistance … was used
+…`, whatever its purpose), a reply
 marker, an assistance heading; a finding that merely mentions assistance is
 not one — refuses naming the line, so the tool's is the only one. A reply
 still ends in its own marker exactly once: a quoted marker is the quoted

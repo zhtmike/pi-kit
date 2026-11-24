@@ -9,6 +9,7 @@
  */
 
 import { githubErrorMessage, type AnchorMove, type PostComment } from "./post.ts";
+import { trailerLines, type Identity } from "./identity.ts";
 
 /** Wrap one chained next-step hint — appended to a result only when the step is real for the caller. */
 function nextHint(text: string): string {
@@ -187,6 +188,14 @@ export function bindUnboundReason(): string {
 /** commit's lane refusal — the landing gate stays with the parent session. */
 export function commitLaneReason(): string {
 	return "commit refuses in a dispatched lane — lanes never land code; the parent session applies the patch and lands it through this gate";
+}
+
+/** commit's own-disclosure refusal — the caller's line the injected trailers would double. */
+export function commitOwnDisclosureReason(found: string, id: Identity): string {
+	return [
+		`the commit message carries its own AI-assistance disclosure — ${found} — and the tool injects its own (${trailerLines(id).map((t) => `"${t}"`).join(", ")})`,
+		"drop the line: a message carrying both lands the footnote twice",
+	].join("\n");
 }
 
 /** draft's assistance conflict — the param and the body's own section contradict. */

@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.1 — 2026-11-24
+
+`commit` refuses a message that carries its own AI-assistance disclosure.
+
+- **A landed commit carried the footnote twice** — the body ended with a
+  hand-written `AI assistance (pi coding agent, GLM-5.4) was used for this
+  change.` above the trailers the tool injects (`AI-assistance:` and
+  `Co-authored-by:`) (verl-omni#953, `164a7ea`). `post` owned its
+  disclosure since 0.6.0; `commit` now does too: a subject, body, or
+  trailer line carrying its own — the footer sentence (`AI assistance … was
+  used …`, whatever its purpose), an
+  `AI-assistance:` trailer, the agent's own `Co-authored-by` — refuses
+  naming the line and the injected trailers; a human co-author's trailer
+  passes. The sentence check now matches any purpose ("was used for this
+  change" read as a finding before — only "for this review" matched).
+
 ## 0.7.0 — 2026-11-24
 
 Thread anchors settle onto the diff; GitHub's error body reaches the result.

@@ -48,9 +48,9 @@ export const ASSISTANCE_HEADING_SHAPE = String.raw`#{1,3}\s*AI[- ]assistance\b`;
 
 export const ASSISTANCE_HEADING_RE = new RegExp(String.raw`(^|\n)${ASSISTANCE_HEADING_SHAPE}`, "i");
 
-/** A line that IS a disclosure, anchored at line start (an optional list bullet or emphasis wrap before it): the review footer in any wording, the reply marker, or an assistance heading — a finding that merely mentions assistance is none. */
+/** A line that IS a disclosure, anchored at line start (an optional list bullet or emphasis wrap before it): the footer sentence (`AI assistance … was used …`, whatever its purpose), the reply marker, or an assistance heading — a finding that merely mentions assistance is none. */
 export const DISCLOSURE_LINE_RE = new RegExp(
-	String.raw`^(?:[-*]\s*)?(?:[_*]*AI assistance\b.*\bwas used for this review|<sub>AI-assisted reply\b|${ASSISTANCE_HEADING_SHAPE})`,
+	String.raw`^(?:[-*]\s*)?(?:[_*]*AI[- ]assist\w*\b.*\bwas used\b|<sub>AI-assisted reply\b|${ASSISTANCE_HEADING_SHAPE})`,
 	"i",
 );
 
@@ -58,6 +58,24 @@ export const DISCLOSURE_LINE_RE = new RegExp(
 export function disclosureLine(text: string): number | undefined {
 	const i = text.split("\n").findIndex((l) => DISCLOSURE_LINE_RE.test(l.trim()));
 	return i === -1 ? undefined : i + 1;
+}
+
+/** The caller's commit-message line that would double the tool's own disclosure — a disclosure sentence, an `AI-assistance:` trailer, or the agent's own `Co-authored-by` (a human co-author's passes) — as `subject` / `body line N` / `trailer N` plus the line; undefined when the message carries none. */
+export function commitDisclosure(params: { subject: string; body?: string; trailers?: string[] }, agent: string): string | undefined {
+	const isOwn = (line: string): boolean => {
+		const t = line.trim();
+		if (DISCLOSURE_LINE_RE.test(t) || /^AI-assistance:/i.test(t)) return true;
+		const coAuthor = /^co-authored-by:\s*(.*)$/i.exec(t)?.[1].trim().toLowerCase();
+		const who = agent.toLowerCase();
+		return coAuthor !== undefined && (coAuthor === who || coAuthor.startsWith(`${who} `));
+	};
+	for (const [part, text] of [["subject", params.subject], ["body", params.body ?? ""]] as const) {
+		const lines = text.split("\n");
+		const i = lines.findIndex(isOwn);
+		if (i !== -1) return part === "subject" ? `subject: ${lines[i].trim()}` : `body line ${i + 1}: ${lines[i].trim()}`;
+	}
+	const i = (params.trailers ?? []).findIndex(isOwn);
+	return i === -1 ? undefined : `trailer ${i + 1}: ${(params.trailers ?? [])[i].trim()}`;
 }
 
 /** A commit's full message: subject, blank-separated body, then the trailer block as its own paragraph (identity trailers first, caller trailers after — never dropped). */

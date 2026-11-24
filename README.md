@@ -16,7 +16,7 @@ Six single-word names, one per gate surface:
 |---|---|
 | `checkout` | one live session per git work tree — status / claim / worktree escape / `clean` (this session's `.pi/work/s/<sid>`) |
 | `approve` | record a session approval the agent judged from the user's TUI message (quoted source = the audit trail) |
-| `commit` | commit the staged diff: hooks on, identity trailers, the review bind spent, the approval named |
+| `commit` | commit the staged diff: hooks on, identity trailers, the review bind spent, the approval named — a message carrying its own AI-assistance line refuses |
 | `bind` | record that a fresh review ran (the staged tree, or a to-be-posted text file) — what `commit` and gh posts spend |
 | `draft` | write/overwrite `pr_<branch-slug>.md`: template coverage, AI-assistance section, local compare URL, landed commits |
 | `post` | compose and post to GitHub via the user's gh: a COMMENT review with inline threads (verdicts `clean/minor/blocking`; each thread carries `severity`, optional `label`/`cites`; a thread anchored outside the file's hunks settles onto the nearest diffed line, citing the requested one), a comment, a reply (`addressed/skipped`), or a PR create/edit — gated on `comment`/`pr`, no bind file, no claim |

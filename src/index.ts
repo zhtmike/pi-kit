@@ -17,7 +17,7 @@ import { defineTool, isToolCallEventType, type AgentToolResult, type ExtensionAP
 import { loadConfig, standingCovers, type PiKitConfig } from "./config.ts";
 import { classifyCommand } from "./classify.ts";
 import { ALL_ACTIONS, actionOfShape, foldEntry, isApprovalAction, refuseCovered, type ApprovalAction } from "./approvals.ts";
-import { commitMessage, identityFrom } from "./identity.ts";
+import { commitDisclosure, commitMessage, identityFrom } from "./identity.ts";
 import { findBind, recordBinds, sha256File, spendBind } from "./binds.ts";
 import { ensureClaimAt, selfOf } from "./claimrun.ts";
 import {
@@ -485,7 +485,7 @@ export default function (pi: ExtensionAPI) {
 		name: "commit",
 		label: "Commit (gated)",
 		description:
-			"Commit the staged diff — hooks on, identity trailers injected, the review bind spent. " +
+			"Commit the staged diff — hooks on, identity trailers injected (the tool owns the AI-assistance disclosure: a subject, body, or trailer line carrying its own refuses), the review bind spent. " +
 			"Needs a review bind for the staged tree (a pre-approved commit — standing allow or session grant — waives a missing bind), then an approval. Stage with git add first.",
 		parameters: Type.Object({
 			subject: Type.String({ description: "One-line subject (repo convention when one exists)" }),
@@ -496,6 +496,9 @@ export default function (pi: ExtensionAPI) {
 
 		async execute(_id, params, _signal, _onUpdate, ctx) {
 			if (childMarker()) throw new Error(F.commitLaneReason());
+			const identity = identityFrom(cfg.agentName, ctx.model as any);
+			const own = commitDisclosure(params, identity.agent);
+			if (own !== undefined) throw new Error(F.commitOwnDisclosureReason(own, identity));
 			const sid = ctx.sessionManager.getSessionId() ?? "";
 			const startDir = targetOrCwd(params.targetDir, ctx.cwd ?? process.cwd());
 			const treeRoot = await gitRootOf(exec, startDir);
@@ -509,7 +512,6 @@ export default function (pi: ExtensionAPI) {
 			if (stat.code !== 0) throw new Error(`git diff --cached failed: ${stat.stderr.trim()}`);
 			if (stat.stdout.trim() === "") throw new Error(F.nothingStagedReason());
 			const treeHash = await writeTree(exec, treeRoot);
-			const identity = identityFrom(cfg.agentName, ctx.model as any);
 			const repoIdent = await repoIdentity(exec, treeRoot);
 			const commitPreApproved = standingCovers(cfg, repoIdent, "commit") ? "standing allow" : grants.has("commit") ? "session approval" : undefined;
 			let bindSource: string;

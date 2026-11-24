@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { identityFrom } from "../src/identity.ts";
 import {
 	approveBody,
 	approveNextHint,
@@ -9,6 +10,7 @@ import {
 	bindTreeNextHint,
 	commitBody,
 	commitLaneReason,
+	commitOwnDisclosureReason,
 	checkoutWorktreeExists,
 	checkoutWorktreeSynced,
 	commitNextHint,
@@ -105,6 +107,12 @@ t("commit's lane refusal and the git-tree refusal carry their remedies", () => {
 		"not inside a git work tree (from /tmp/x) — pass targetDir pointing inside the tree, or run from inside it",
 	);
 	assert.equal(assistanceConflictReason(), "body already carries an AI-assistance section — put the text inside it or drop the assistance param");
+	assert.equal(
+		commitOwnDisclosureReason("body line 3: AI assistance (pi coding agent, GLM-5.4) was used for this change.", identityFrom("pi", { id: "glm-5.4" })),
+		'the commit message carries its own AI-assistance disclosure — body line 3: AI assistance (pi coding agent, GLM-5.4) was used for this change. — and the tool injects its own ("AI-assistance: pi (glm-5.4)", "Co-authored-by: pi <noreply@pi.dev>")\ndrop the line: a message carrying both lands the footnote twice',
+	);
+	// no model: the injected set is the co-author alone
+	assert.match(commitOwnDisclosureReason("trailer 1: AI-assistance: pi", identityFrom("pi", undefined)), /injects its own \("Co-authored-by: pi <noreply@pi.dev>"\)$/m);
 });
 
 t("worktree bodies: exists names the as-is cases; synced names the re-root", () => {
