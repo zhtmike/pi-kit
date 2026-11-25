@@ -8,6 +8,7 @@
  * tool schemas stay lean (docs/api.md's minimal-descriptions contract).
  */
 
+import { ALL_ACTIONS } from "./approvals.ts";
 import { githubErrorMessage, type AnchorMove, type PostComment } from "./post.ts";
 import { trailerLines, type Identity } from "./identity.ts";
 
@@ -41,9 +42,11 @@ export function worktreeNextHint(): string {
 	return nextHint("work under the returned path — its own git dir takes its own stamp");
 }
 
-/** approve → the approved ops run without further dialogs. */
-export function approveNextHint(): string {
-	return nextHint("run the gated op — it proceeds without a dialog until this session quits");
+/** approve → the granted ops run dialog-free; with `destructive` not among them, the blanket-approval follow-up instead. */
+export function approveNextHint(destructiveUngranted = false): string {
+	return destructiveUngranted
+		? nextHint('if the approval covered every gate ("all gates", YOLO), call approve with destructive too — it covers every shape past ask; the granted ops already run without a dialog')
+		: nextHint("run the granted ops — they proceed without a dialog until this session quits");
 }
 
 // --- footer labels -------------------------------------------------------------------------
@@ -160,8 +163,19 @@ export function checkoutClaimBody(row: number, sid: string, root: string): strin
 	return `claim holds (row ${row}): session ${sid} at ${root}`;
 }
 
+/** approve's result — the grants in force, the actions left out and what still asks for them; `destructive` among the left-out names the mid-run stop. */
 export function approveBody(actions: string[], source: string): string {
-	return `recorded: ${actions.join(", ")} approved for this session ("${source}") — coverage until quit; refuse shapes stay barred.\n${approveNextHint()}`;
+	const uncovered = ALL_ACTIONS.filter((a) => !actions.includes(a));
+	const head = `recorded: ${actions.join(", ")} approved for this session ("${source}") — coverage until quit.`;
+	if (uncovered.length === 0) return `${head} Every gate is covered.\n${nextHint("run — every gate action is covered until this session quits")}`;
+	const yolo = uncovered.includes("destructive");
+	return [
+		`${head} Not granted: ${uncovered.join(", ")}.`,
+		yolo
+			? "A destructive shape — git reset --hard, git stash drop, checkout -- <path>, rebase, a force push, commit --amend — still stops at a dialog mid-run; a refuse shape — bash git commit, gh pr merge, gh pr review --approve, gh api prose — blocks naming the destructive grant."
+			: "Those shapes still stop the run.",
+		approveNextHint(yolo),
+	].join("\n");
 }
 
 export function approveNotTuiReason(): string {

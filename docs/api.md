@@ -143,7 +143,11 @@ an approval of named verbs, or a blanket approval of the session/gate ("I
 have approved the gate", "I have human approved the session") — the agent
 calls `approve` with the actions it judged granted and a short quote of
 the user's words. Hedges, negations, and questions are not approvals; the agent
-decides, and the record is the audit trail.
+decides, and the record is the audit trail. A blanket approval — "all
+gates", YOLO, everything — is the whole vocabulary, `destructive`
+included: the result names the actions left out, and until `destructive`
+is granted a destructive shape still stops at a dialog mid-run and a
+refuse shape blocks.
 
 **Tool `approve`** — params: `actions` (the vocabulary table's actions:
 `commit`, `push`, `pr`, `comment`, `tag`, `release`, `destructive`),
@@ -336,8 +340,9 @@ Tool results chain the workflow with one bracketed `[next: …]` line,
 appended only when the named step is real for the caller — `bind` names its
 spender, `commit` names the push/draft follow-ups, `draft` names the `post`
 step, `checkout
-worktree` names working under the returned path, `approve` names the
-now-dialog-free op. The convention (not the wording) is the contract;
+worktree` names working under the returned path; `approve`'s body names the
+ops still stopping the run, its hint the blanket-approval follow-up when
+`destructive` is not among the grants. The convention (not the wording) is the contract;
 the texts live in `src/format.ts` under test.
 
 ## Status bar

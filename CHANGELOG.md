@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.2 — 2026-11-24
+
+`approve` says what a blanket approval must include.
+
+- **A pre-approved long run stopped at a dialog** — "I have pre-approved
+  all gates" was recorded as `commit, push, pr, comment`; a `git stash
+  drop` in the recovery then raised the destructive dialog. The
+  `destructive` grant is the YOLO switch and recognition is the agent's
+  judgment, not a grammar — so the judgment now reads it: `approve`'s
+  description says a blanket approval is every action, `destructive`
+  included, and its result names the actions left out and what still
+  stops the run — a dialog for destructive shapes, a block for refuse
+  ones — with a hint to add `destructive` when the approval covered every
+  gate.
+
 ## 0.7.1 — 2026-11-24
 
 `commit` refuses a message that carries its own AI-assistance disclosure.

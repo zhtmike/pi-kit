@@ -409,9 +409,10 @@ export default function (pi: ExtensionAPI) {
 		label: "Record a session approval",
 		description:
 			"Record that the user approved the named gated actions for this session — call it when their TUI message grants them (your judgment: a directive or an approval of the session/gate/verbs; hedges, negations, and questions are not approvals). " +
+			"A blanket approval — \"all gates\", YOLO — is every action, `destructive` included. " +
 			"Grants last until quit; the coarse `destructive` grant covers every shape past ask — destructive and refuse rows alike.",
 		parameters: Type.Object({
-			actions: Type.Array(stringEnum(ALL_ACTIONS as unknown as readonly string[], { description: "The actions the user approved (`destructive` — the all-gates grant — covers every shape past ask, refuse rows included)" })),
+			actions: Type.Array(stringEnum(ALL_ACTIONS as unknown as readonly string[], { description: "The actions the user approved (`destructive` — the all-gates grant — covers every shape past ask, refuse rows included; a blanket approval names it too)" })),
 			source: Type.String({ description: "Short quote of the user's approving words (recorded in the session entry)" }),
 		}),
 

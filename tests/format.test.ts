@@ -44,7 +44,7 @@ const t = (name: string, fn: () => void) => {
 };
 
 t("every hint is one bracketed [next: …] line naming a concrete step", () => {
-	for (const h of [bindTreeNextHint(), bindPostNextHint(), commitNextHint(), draftNextHint(), worktreeNextHint(), approveNextHint()]) {
+	for (const h of [bindTreeNextHint(), bindPostNextHint(), commitNextHint(), draftNextHint(), worktreeNextHint(), approveNextHint(), approveNextHint(true)]) {
 		assert.match(h, /^\[next: [^\s][^\n]*\]$/);
 	}
 });
@@ -55,7 +55,7 @@ t("result bodies end with their chain hint", () => {
 	assert.match(commitBody("sha1234567890", "dialog", "bind row (session abcd1234)", true, "", "stat", "msg"), /\n\[next: push when ready[^\n]*\]$/);
 	assert.match(commitNextHint(), /checkout \(action clean\) clears this session's scratch once the work ships\]$/);
 	assert.match(draftBody("pr_x.md", "https://x", "main", "feat", "abc123 x", "body"), /\n\[next: post \(kind pr, title, body <the checked body>\)[^\n]*\]$/);
-	assert.match(approveBody(["commit", "push"], "push it"), /\n\[next: run the gated op[^\n]*\]$/);
+	assert.match(approveBody(["commit", "push"], "push it"), /\n\[next: if the approval covered every gate[^\n]*\]$/);
 });
 
 t("commit body names approval, bind spend, hooks, stat, message — in that order", () => {
@@ -70,6 +70,27 @@ t("footer label and the record-failure message", () => {
 	assert.equal(approvalRecordFailedReason("short err"), "approval record failed: short err");
 	assert.equal(approvalRecordFailedReason("x".repeat(200)), `approval record failed: ${"x".repeat(119)}…`);
 	assert.equal(approvalRecordFailedReason("line\nbreaks   collapse"), "approval record failed: line breaks collapse");
+});
+
+t("approve's result names the actions left out; destructive among them names the mid-run stop and the blanket-approval follow-up", () => {
+	// the pre-approved long run: "all gates" recorded as four actions, then a stash drop stopped at a dialog
+	assert.equal(
+		approveBody(["commit", "push", "pr", "comment"], "I have pre-approved all gates"),
+		'recorded: commit, push, pr, comment approved for this session ("I have pre-approved all gates") — coverage until quit. Not granted: tag, release, destructive.\n' +
+			"A destructive shape — git reset --hard, git stash drop, checkout -- <path>, rebase, a force push, commit --amend — still stops at a dialog mid-run; a refuse shape — bash git commit, gh pr merge, gh pr review --approve, gh api prose — blocks naming the destructive grant.\n" +
+			'[next: if the approval covered every gate ("all gates", YOLO), call approve with destructive too — it covers every shape past ask; the granted ops already run without a dialog]',
+	);
+	assert.equal(
+		approveBody(["push", "destructive"], "push it, and yes to the reset"),
+		'recorded: push, destructive approved for this session ("push it, and yes to the reset") — coverage until quit. Not granted: commit, pr, comment, tag, release.\n' +
+			"Those shapes still stop the run.\n" +
+			"[next: run the granted ops — they proceed without a dialog until this session quits]",
+	);
+	assert.equal(
+		approveBody(["commit", "push", "pr", "comment", "tag", "release", "destructive"], "yolo"),
+		'recorded: commit, push, pr, comment, tag, release, destructive approved for this session ("yolo") — coverage until quit. Every gate is covered.\n' +
+			"[next: run — every gate action is covered until this session quits]",
+	);
 });
 
 t("dialog preview collapses whitespace and caps at 160", () => {
